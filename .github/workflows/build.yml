@@ -68,7 +68,7 @@ jobs:
         run: npm run build
 
       - name: Package (${{ matrix.suffix }})
-        run: npx electron-builder --${{ matrix.target }} --publish never
+        run: npx electron-builder -t ${{ matrix.target }} --publish never
         env:
           # Optional signing: set these secrets only if you have certificates.
           # macOS: CSC_LINK (p12) + CSC_KEY_PASSWORD ; Windows: CSC_LINK + CSC_KEY_PASSWORD (or a codesigning cert).
