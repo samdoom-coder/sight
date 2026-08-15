@@ -1,0 +1,27 @@
+# Sight signaling server — systemd unit example
+# Place in /etc/systemd/system/sight-signaling.service then:
+#   systemctl daemon-reload && systemctl enable --now sight-signaling
+#
+# Clients connect with SIGNALING_URL=wss://yourdomain/ws when run behind nginx.
+
+[Unit]
+Description=Sight P2P signaling server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sight
+# Uses the production build: npm run build:server first, or rely on server:prod.
+ExecStart=/usr/bin/npm run server:start
+Restart=on-failure
+RestartSec=3
+User=sight
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=ALLOWED_ORIGINS=*
+Environment=SESSION_TTL_MS=1800000
+Environment=MAX_PARTICIPANTS=8
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,82 @@
+{
+  "name": "sight",
+  "version": "0.1.0",
+  "description": "Sight — instant peer-to-peer screen sharing made ridiculously simple.",
+  "author": "Sight Team",
+  "license": "MIT",
+  "main": "dist/main/index.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:main": "tsx watch src/main/index.ts",
+    "build": "npm run build:main && npm run build:preload && npm run build:server && npm run build:renderer",
+    "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/main/index.cjs",
+    "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload/index.cjs",
+    "build:renderer": "vite build",
+    "build:server": "esbuild server/src/index.ts --bundle --platform=node --format=esm --external:ws --outfile=dist/server/index.js",
+    "start": "electron .",
+    "package": "npm run build && electron-builder",
+    "package:dir": "npm run build && electron-builder --dir",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "server": "tsx server/src/index.ts",
+    "server:start": "node dist/server/index.js",
+    "server:prod": "npm run build:server && node dist/server/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "nanoid": "^5.0.7"
+  },
+  "devDependencies": {
+    "@electron-toolkit/utils": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^3.1.2",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.12",
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.23.0",
+    "svelte": "^4.2.18",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5",
+    "@vitest/ui": "^2.0.5"
+  },
+  "build": {
+    "appId": "app.sight.desktop",
+    "productName": "Sight",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "category": "Network",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
