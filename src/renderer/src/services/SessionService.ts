@@ -52,6 +52,7 @@ export class SessionService {
   private reconnectAttempts = 0
   private ended = false
   private audio: AudioService
+  private remotePeerId: string | null = null
 
   readonly phase = writable<ConnectionPhase>('idle')
   readonly signalingStatus = writable<SignalingStatus>('idle')
@@ -77,6 +78,9 @@ export class SessionService {
       onStatusChange: (status) => {
         this.signalingStatusValue = status
         this.signalingStatus.set(status)
+        if (status === 'connected') {
+          this.onConnectedToSignaling()
+        }
       },
       onMessage: (message) => this.handleSignal(message),
       onError: () => {
@@ -114,10 +118,12 @@ export class SessionService {
 
   private onConnectedToSignaling(): void {
     if (!this.signaling.isConnected) return
+    console.debug('[session] hello as', this.role)
     this.signaling.send({ type: 'hello', payload: { kind: this.role, displayName: this.init.displayName } })
   }
 
   private handleSignal(message: SignalEnvelope): void {
+    console.debug('[session] signal <-', message.type)
     switch (message.type) {
       case 'welcome': {
         const payload = message.payload as { peerId: string }
@@ -152,6 +158,7 @@ export class SessionService {
         const payload = message.payload as { sessionId: string; hostId: string; hostName: string; peerId: string }
         this.sessionId = payload.sessionId
         this.hostId = payload.hostId
+        this.remotePeerId = payload.hostId
         this.hostName = payload.hostName
         this.sessionIdStore.set(payload.sessionId)
         this.participantId = payload.peerId
@@ -181,6 +188,7 @@ export class SessionService {
         const payload = message.payload as { peerId: string; displayName: string }
         this.addParticipant(payload.peerId, payload.displayName, false)
         if (this.role === 'host') {
+          this.remotePeerId = payload.peerId
           this.initWebRTCForPeer(payload.peerId)
         }
         break
@@ -194,11 +202,13 @@ export class SessionService {
         break
       }
       case 'offer': {
+        if (message.from) this.remotePeerId = message.from
         const payload = message.payload as { sdp: RTCSessionDescriptionInit }
         this.handleIncomingOffer(payload.sdp)
         break
       }
       case 'answer': {
+        if (message.from) this.remotePeerId = message.from
         const payload = message.payload as { sdp: RTCSessionDescriptionInit }
         this.handleIncomingAnswer(payload.sdp)
         break
@@ -271,6 +281,7 @@ export class SessionService {
 
   private async initWebRTCForPeer(targetPeerId: string): Promise<void> {
     if (this.webrtc) return
+    this.remotePeerId = targetPeerId
     await this.initWebRTCCommon()
     this.phase.set('negotiating')
     this.callbacks.onStatusMessage('Negotiating with the guest...')
@@ -299,7 +310,8 @@ export class SessionService {
         this.sendHello()
       },
       onIceCandidate: (candidate) => {
-        const target = this.role === 'host' ? this.hostId! : this.hostId!
+        const target = this.remotePeerId ?? this.hostId
+        if (!target) return
         this.signaling.sendTo(target, {
           type: 'ice-candidate',
           payload: { candidate },
@@ -339,6 +351,7 @@ export class SessionService {
   }
 
   private handleIceStateChange(state: RTCIceConnectionState): void {
+    console.debug('[webrtc] ice state:', state)
     switch (state) {
       case 'checking':
         this.phase.set('establishing')
@@ -573,6 +586,7 @@ export class SessionService {
   }
 
   private setError(code: string, message: string): void {
+    console.warn('[session] error:', code, message)
     this.errorStore.set({ code, message })
     this.callbacks.onError(code, message)
   }
