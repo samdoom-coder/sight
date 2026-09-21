@@ -22,7 +22,7 @@ export interface WebRtcServiceOptions {
 export class WebRTCService {
   private pc: RTCPeerConnection | null = null
   private dataChannel: RTCDataChannel | null = null
-  private pendingCandidates: RTCIceCandidateInit[] = []
+  private incomingCandidateQueue: RTCIceCandidateInit[] = []
   private readonly stateMachine = new ConnectionStateMachine()
   private localStream: MediaStream | null = null
   private remoteStream: MediaStream | null = null
@@ -66,7 +66,6 @@ export class WebRTCService {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        this.pendingCandidates.push(event.candidate)
         this.options.onIceCandidate?.(event.candidate)
       }
     }
@@ -77,6 +76,7 @@ export class WebRTCService {
     }
 
     pc.ontrack = (event) => {
+      console.debug('[webrtc] remote track:', event.track.kind)
       if (event.streams.length > 0) {
         this.remoteStream = event.streams[0]
       }
@@ -152,6 +152,7 @@ export class WebRTCService {
   async handleOffer(sdp: RTCSessionDescriptionInit): Promise<RTCSessionDescriptionInit> {
     if (!this.pc) throw new Error('Peer connection not initialized')
     await this.pc.setRemoteDescription(sdp)
+    await this.flushIncomingCandidates()
     const answer = await this.pc.createAnswer()
     await this.pc.setLocalDescription(answer)
     return answer
@@ -160,12 +161,17 @@ export class WebRTCService {
   async handleAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
     if (!this.pc) throw new Error('Peer connection not initialized')
     await this.pc.setRemoteDescription(sdp)
-    this.flushPendingCandidates()
+    await this.flushIncomingCandidates()
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit | null): Promise<void> {
     if (!this.pc) return
     if (!candidate) return
+    // Candidates arriving before the remote description is set must be queued.
+    if (!this.pc.remoteDescription) {
+      this.incomingCandidateQueue.push(candidate)
+      return
+    }
     try {
       await this.pc.addIceCandidate(candidate)
     } catch (err) {
@@ -173,11 +179,15 @@ export class WebRTCService {
     }
   }
 
-  private flushPendingCandidates(): void {
+  private async flushIncomingCandidates(): Promise<void> {
     if (!this.pc) return
-    const pending = this.pendingCandidates.splice(0)
+    const pending = this.incomingCandidateQueue.splice(0)
     for (const candidate of pending) {
-      this.pc.addIceCandidate(candidate).catch((err) => this.options.onIceError?.(err as Error))
+      try {
+        await this.pc.addIceCandidate(candidate)
+      } catch (err) {
+        this.options.onIceError?.(err as Error)
+      }
     }
   }
 
@@ -228,7 +238,7 @@ export class WebRTCService {
       this.pc.close()
       this.pc = null
     }
-    this.pendingCandidates = []
+    this.incomingCandidateQueue = []
     this.stateMachine.reset()
     this.localStream = null
     this.remoteStream = null
