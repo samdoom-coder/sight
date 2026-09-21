@@ -1,3 +1,33 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+// Minimal .env loader so `npm run server` picks up `.env.development` / `.env`
+// without requiring a new dependency. Explicit process env always wins.
+function loadDotEnvFiles(): void {
+  const candidates = ['.env.development', '.env']
+  if (process.env.NODE_ENV === 'production') candidates.unshift('.env.production')
+  for (const file of candidates) {
+    const path = resolve(process.cwd(), file)
+    if (!existsSync(path)) continue
+    try {
+      const content = readFileSync(path, 'utf8')
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const eq = trimmed.indexOf('=')
+        if (eq < 0) continue
+        const key = trimmed.slice(0, eq).trim()
+        const value = trimmed.slice(eq + 1).trim()
+        if (key && process.env[key] === undefined) process.env[key] = value
+      }
+    } catch {
+      // ignore unreadable env files and fall back to defaults
+    }
+  }
+}
+
+loadDotEnvFiles()
+
 export const PORT = Number(process.env.PORT ?? 8787)
 export const HOST = process.env.HOST ?? '0.0.0.0'
 
