@@ -26,20 +26,20 @@
 <header class="titlebar">
   <div class="drag-region"></div>
   <div class="left">
-    <div class="logo" onclick={() => route.set({ name: 'home' })}>
+    <div class="logo" on:click={() => route.set({ name: 'home' })}>
       <span class="logo-mark">S</span>
       <span class="logo-name">Sight</span>
     </div>
   </div>
   <div class="controls">
     {#if window.desktop?.platform !== 'darwin'}
-      <button class="ctrl" aria-label="Minimize" onclick={minimize}>
+      <button class="ctrl" aria-label="Minimize" on:click={minimize}>
         <svg width="12" height="12" viewBox="0 0 12 12"><line x1="0" y1="6" x2="12" y2="6" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
-      <button class="ctrl" aria-label="Maximize" onclick={maximize}>
+      <button class="ctrl" aria-label="Maximize" on:click={maximize}>
         <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
-      <button class="ctrl close" aria-label="Close" onclick={close}>
+      <button class="ctrl close" aria-label="Close" on:click={close}>
         <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" /><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" /></svg>
       </button>
     {/if}
