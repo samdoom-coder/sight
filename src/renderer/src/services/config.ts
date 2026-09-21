@@ -1,7 +1,8 @@
 import { writable, derived } from 'svelte/store'
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types/settings'
+import { DEFAULT_SIGNALING_URL, normalizeSignalingUrl } from '@shared/lib/signaling-url'
 
-const DEFAULT_SIGNALING_URL = 'ws://localhost:8787'
+export { DEFAULT_SIGNALING_URL, normalizeSignalingUrl }
 
 export interface RuntimeConfig {
   signalingUrl: string
@@ -12,8 +13,8 @@ export interface RuntimeConfig {
 
 function readEnv(): Partial<RuntimeConfig> {
   const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {}
-  const v = (key: string): string | undefined => viteEnv[`VITE_${key}`]
-  const signalingUrl = v('SIGNALING_URL') || DEFAULT_SIGNALING_URL
+  const v = (key: string): string | undefined => viteEnv[`VITE_${key}`] ?? viteEnv[key]
+  const signalingUrl = normalizeSignalingUrl(v('SIGNALING_URL') || DEFAULT_SIGNALING_URL)
   const iceServers: RTCIceServer[] = []
   const stun = v('STUN_URL')
   if (stun) iceServers.push({ urls: stun })
@@ -41,7 +42,7 @@ function buildConfig(settings: AppSettings): RuntimeConfig {
   const iceServers: RTCIceServer[] =
     configuredIce.length > 0 ? configuredIce : [{ urls: 'stun:stun.l.google.com:19302' }]
   return {
-    signalingUrl: env.signalingUrl || DEFAULT_SIGNALING_URL,
+    signalingUrl: normalizeSignalingUrl(env.signalingUrl || DEFAULT_SIGNALING_URL),
     iceServers,
     appVersion: '0.1.0',
     platform: window.desktop?.platform ?? 'unknown'
