@@ -14,9 +14,18 @@
 
   const defaultIce = [{ urls: 'stun:stun.l.google.com:19302' }]
 
-  onMount(() => {
-    let service: SessionService | null = null
+  // Hoisted so the retry button can end a failed session explicitly.
+  // The live session itself belongs to sessionStore and must survive
+  // navigation to the viewer — never end it in the unmount teardown.
+  let service: SessionService | null = null
 
+  function retry(): void {
+    service?.endSession()
+    service = null
+    navigate({ name: 'join' })
+  }
+
+  onMount(() => {
     const unsubscribeConfig = config.subscribe(($cfg) => {
       if (service || !$cfg) return
       const displayName = localStorage.getItem('sight-display-name') ?? 'Guest'
@@ -65,7 +74,6 @@
       service.__cleanup = () => {
         unsubPhase()
         unsubErr()
-        service?.endSession()
       }
     })
 
@@ -103,7 +111,7 @@
   <div class="status-box">
     {#if error}
       <p class="err">{error}</p>
-      <button class="retry-btn" onclick={() => navigate({ name: 'join' })}>Try another code</button>
+      <button class="retry-btn" on:click={retry}>Try another code</button>
     {:else}
       <p class="status-msg">{statusMessage}</p>
       <p class="status-sub">Joining session {code}</p>
