@@ -31,7 +31,7 @@
 </script>
 
 <main class="join animate-in">
-  <button class="back-btn" onclick={goBack}>← Back</button>
+  <button class="back-btn" on:click={goBack}>← Back</button>
   <div class="card">
     <h1>Join a session</h1>
     <p class="sub">Enter the code your host shared with you.</p>
@@ -39,8 +39,8 @@
     <input
       class="code-input"
       placeholder="8K4-X9P"
-      oninput={onCodeInput}
-      onkeydown={(e) => {
+      on:input={onCodeInput}
+      on:keydown={(e) => {
         if (e.key === 'Enter') connect()
       }}
       maxlength="7"
@@ -51,7 +51,7 @@
       <p class="error">{codeError}</p>
     {/if}
 
-    <button class="connect-btn" onclick={connect}>
+    <button class="connect-btn" on:click={connect}>
       Connect
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14" /><path d="M12 5l7 7-7 7" /></svg>
     </button>
