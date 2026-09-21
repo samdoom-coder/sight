@@ -7,6 +7,7 @@
   import type { CaptureSource } from '@shared/types/models'
 
   const capture = new ScreenCaptureService(window.desktop?.platform ?? 'unknown')
+  const isDesktopApp = typeof window !== 'undefined' && !!window.desktop
 
   let sources: CaptureSource[] = []
   let loading = true
@@ -69,11 +70,21 @@
 </script>
 
 <main class="picker animate-in">
-  <button class="back-btn" onclick={goBack}>← Back</button>
+  <button class="back-btn" on:click={goBack}>← Back</button>
   <div class="heading">
     <h1>Share your screen</h1>
     <p class="sub">Pick what you want to share.</p>
   </div>
+
+  {#if !isDesktopApp}
+    <div class="permission-card">
+      <div class="perm-icon">🖥️</div>
+      <div class="perm-text">
+        <strong>Open this page in the Electron app to share your screen</strong>
+        <pre>Browser preview cannot capture screens. Run terminal 1: npm run server, terminal 2: npm run dev, terminal 3: npm run dev:main, then use the desktop window.</pre>
+      </div>
+    </div>
+  {/if}
 
   {#if permissionIssue}
     <div class="permission-card">
@@ -86,8 +97,8 @@
   {/if}
 
   <div class="tabs">
-    <button class:active={filter === 'screen'} onclick={() => setFilter('screen')}>Screens</button>
-    <button class:active={filter === 'window'} onclick={() => setFilter('window')}>Windows</button>
+    <button class:active={filter === 'screen'} on:click={() => setFilter('screen')}>Screens</button>
+    <button class:active={filter === 'window'} on:click={() => setFilter('window')}>Windows</button>
   </div>
 
   {#if loading}
@@ -100,7 +111,7 @@
         <button
           class:selected={selectedId === source.id}
           class="source-card"
-          onclick={() => selectSource(source)}
+          on:click={() => selectSource(source)}
           aria-label={source.name}
         >
           {#if source.thumbnailDataUrl}
@@ -128,7 +139,7 @@
         {/if}
       </span>
     </div>
-    <button class="share-btn" onclick={startSharing} disabled={!selectedId}>
+    <button class="share-btn" on:click={startSharing} disabled={!selectedId}>
       Start sharing
     </button>
   </div>
