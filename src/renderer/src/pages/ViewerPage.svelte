@@ -162,7 +162,7 @@
     <div class="disconnect-screen">
       <h2>Session ended</h2>
       <p>The host ended the session or the connection was lost.</p>
-      <button class="btn-primary" onclick={() => navigate({ name: 'home' })}>Back to Home</button>
+      <button class="btn-primary" on:click={() => navigate({ name: 'home' })}>Back to Home</button>
     </div>
   {:else}
     <div class="viewer-bar">
@@ -177,7 +177,7 @@
         {/if}
       </div>
       <div class="controls">
-        <button class="icon-btn" title="Mute / unmute audio" onclick={() => getService()?.toggleAudio()}>
+        <button class="icon-btn" title="Mute / unmute audio" on:click={() => getService()?.toggleAudio()}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             {#if muted()}
               <path d="M11 5 6 9H2v6h4l5 4V5z" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
@@ -186,19 +186,19 @@
             {/if}
           </svg>
         </button>
-        <button class="icon-btn" class:active={cursorsVisible} title="Show / hide cursors" onclick={() => getService()?.toggleCursors()}>
+        <button class="icon-btn" class:active={cursorsVisible} title="Show / hide cursors" on:click={() => getService()?.toggleCursors()}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>
         </button>
-        <button class="icon-btn" title="Fit / actual size" onclick={toggleFitMode}>
+        <button class="icon-btn" title="Fit / actual size" on:click={toggleFitMode}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
         </button>
-        <button class="icon-btn" title="Fullscreen (F)" onclick={toggleFullscreen}>
+        <button class="icon-btn" title="Fullscreen (F)" on:click={toggleFullscreen}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
         </button>
-        <button class="icon-btn" title="Diagnostics" onclick={toggleDiagnostics}>
+        <button class="icon-btn" title="Diagnostics" on:click={toggleDiagnostics}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>
         </button>
-        <button class="end-btn" onclick={endSession}>End</button>
+        <button class="end-btn" on:click={endSession}>End</button>
       </div>
     </div>
 
@@ -208,8 +208,8 @@
           bind:this={videoEl}
           autoplay
           playsinline
-          onloadedmetadata={handleVideoEvent}
-          onresize={handleVideoEvent}
+          on:loadedmetadata={handleVideoEvent}
+          on:resize={handleVideoEvent}
         ></video>
         {#if participants.filter((p) => !p.isSelf && !p.isHost).length > 0 || cursorsVisible}
           {#each participants.filter((p) => !p.isSelf) as p (p.id)}
