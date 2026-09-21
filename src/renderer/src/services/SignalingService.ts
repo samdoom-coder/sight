@@ -43,10 +43,12 @@ export class SignalingService {
     if (this.status === 'connecting' || this.status === 'connected') return
     this.manualClose = false
     this.setStatus('connecting')
+    console.debug('[signaling] connecting to', this.options.url)
 
     try {
       this.ws = new WebSocket(this.options.url)
     } catch (err) {
+      console.warn('[signaling] connect failed', err)
       this.options.onError?.(err as Error)
       this.setStatus('disconnected')
       return
@@ -54,6 +56,7 @@ export class SignalingService {
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0
+      console.debug('[signaling] connected')
       this.setStatus('connected')
       this.startHeartbeat()
     }
@@ -61,6 +64,7 @@ export class SignalingService {
     this.ws.onmessage = (event) => {
       try {
         const message = JSON.parse(String(event.data)) as SignalEnvelope
+        console.debug('[signaling] <-', message.type)
         this.handleMessage(message)
         this.options.onMessage?.(message)
       } catch {
@@ -69,6 +73,7 @@ export class SignalingService {
     }
 
     this.ws.onclose = () => {
+      console.debug('[signaling] closed')
       this.stopHeartbeat()
       this.setStatus('disconnected')
       if (!this.manualClose) {
@@ -77,6 +82,7 @@ export class SignalingService {
     }
 
     this.ws.onerror = () => {
+      console.warn('[signaling] socket error')
       this.ws?.close()
     }
   }
@@ -116,7 +122,11 @@ export class SignalingService {
   }
 
   send(message: SignalEnvelope): boolean {
-    if (this.ws?.readyState !== WebSocket.OPEN) return false
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      console.warn('[signaling] send dropped (not open):', message.type)
+      return false
+    }
+    console.debug('[signaling] ->', message.type)
     this.ws.send(JSON.stringify(message))
     return true
   }
