@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
-import { HOST, PORT, SESSION_TTL_MS } from './config'
+import { ALLOWED_ORIGINS, HOST, PORT, SESSION_TTL_MS } from './config'
 import { SessionRegistry } from './session/registry'
 import { handleConnection } from './ws-handler'
 
@@ -29,6 +29,13 @@ const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
 
 wss.on('connection', (ws, req) => {
   const origin = req.headers.origin
+  // Native Electron / Node ws clients send no Origin; browsers do.
+  // Only reject when an explicit Origin is present and not allow-listed.
+  if (origin && !ALLOWED_ORIGINS.includes('*') && !ALLOWED_ORIGINS.includes(origin)) {
+    log(`Rejected connection with disallowed origin=${origin}`)
+    ws.close(4403, 'Forbidden origin')
+    return
+  }
   log(`Connection from ${req.socket.remoteAddress ?? 'unknown'}${origin ? ` origin=${origin}` : ''}`)
   handleConnection(ws, registry, log)
 })
