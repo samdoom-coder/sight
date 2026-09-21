@@ -33,7 +33,7 @@
 
     const service = new SessionService(
       {
-        signalingUrl: $config?.signalingUrl ?? 'ws://localhost:8787',
+        signalingUrl: $config?.signalingUrl ?? 'ws://localhost:8787/ws',
         iceServers: $config?.iceServers ?? defaultIce,
         platform: window.desktop?.platform ?? 'unknown',
         displayName,
@@ -83,12 +83,13 @@
     })
 
     return () => {
+      // Unsubscribe only: the live session belongs to sessionStore and must
+      // survive navigation (e.g. "Open viewer"). Ending is explicit via endSession().
       unsubscribePhase()
       unsubscribeSig()
       unsubscribeCode()
       unsubscribeParticipants()
       unsubscribeMetrics()
-      service.endSession()
     }
   })
 
@@ -120,7 +121,7 @@
     <div class="connected-banner">
       <span class="live-dot"></span>
       Someone joined your session. Your screen is now being shared.
-      <button class="viewer-link" onclick={goToViewer}>Open viewer →</button>
+      <button class="viewer-link" on:click={goToViewer}>Open viewer →</button>
     </div>
   {/if}
 
@@ -139,11 +140,11 @@
     <div class="divider"></div>
 
     <div class="copy-row">
-      <button class="copy-btn" onclick={copyCode} disabled={!code}>
+      <button class="copy-btn" on:click={copyCode} disabled={!code}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
         Copy Code
       </button>
-      <button class="copy-btn" onclick={copyInviteLink} disabled={!inviteUrl}>
+      <button class="copy-btn" on:click={copyInviteLink} disabled={!inviteUrl}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
         Copy Invite Link
       </button>
@@ -167,7 +168,7 @@
     </div>
   </div>
 
-  <button class="end-btn" onclick={endSession}>End session</button>
+  <button class="end-btn" on:click={endSession}>End session</button>
 </main>
 
 <style>
