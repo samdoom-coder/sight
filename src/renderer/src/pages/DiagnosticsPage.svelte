@@ -173,30 +173,40 @@
     gap: 16px;
   }
   .back-btn {
-    color: var(--text-dim);
-    font-size: 14px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    transition: background 0.15s ease, color 0.15s ease;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    transition: all 0.13s ease;
   }
   .back-btn:hover {
     background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
   }
   h1 {
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-family: var(--font-logo);
+    font-size: 22px;
+    letter-spacing: 0;
   }
   .advanced-badge {
+    font-family: var(--font-mono);
     font-size: 10px;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 3px 8px;
+    letter-spacing: 0.08em;
+    padding: 4px 10px;
     border-radius: 999px;
-    background: rgba(245, 158, 11, 0.12);
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    color: var(--warning);
+    background: var(--mustard);
+    border: 2px solid var(--border);
+    box-shadow: var(--shadow-xs);
+    color: var(--text);
   }
   .grid {
     display: grid;
@@ -204,23 +214,26 @@
     gap: 14px;
   }
   .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    background: #fff;
+    border: 2.5px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-xs);
     padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
   .label {
-    font-size: 12px;
-    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    color: var(--text-faint);
   }
   .card b {
     font-size: 18px;
-    font-weight: 600;
+    font-weight: 800;
     font-family: var(--font-mono);
   }
   .card b.ok {
@@ -230,14 +243,15 @@
     color: var(--warning);
   }
   .section h2 {
-    font-size: 15px;
-    font-weight: 600;
+    font-family: var(--font-logo);
+    font-size: 14px;
     margin-bottom: 12px;
   }
   .cand-list {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    background: #fff;
+    border: 2.5px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-xs);
     padding: 12px;
   }
   .cand-row {
@@ -245,23 +259,27 @@
     gap: 16px;
     padding: 7px 0;
     font-size: 12px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 2px dashed rgba(37, 40, 66, 0.15);
   }
   .cand-row:last-child {
     border-bottom: none;
   }
   .cand-type {
     min-width: 60px;
-    font-weight: 600;
-    color: var(--accent-hover);
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: var(--accent);
   }
   .mono {
     font-family: var(--font-mono);
-    color: var(--text-dim);
+    font-weight: 700;
+    color: var(--text-muted);
   }
   .hint {
     color: var(--text-faint);
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
     line-height: 1.6;
   }
   .empty {
@@ -270,15 +288,31 @@
     align-items: center;
     gap: 16px;
     padding: 60px;
-    color: var(--text-faint);
+    color: var(--text-muted);
     text-align: center;
+    background: var(--bg-card);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-family: var(--font-mono);
+    font-weight: 700;
   }
   .btn {
     padding: 11px 24px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-card-hover);
-    border: 1px solid var(--border-strong);
-    color: var(--text);
-    font-size: 14px;
+    border-radius: 12px;
+    background: var(--accent);
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    color: #fff;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .btn:hover {
+    background: var(--accent-hover);
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 var(--border);
   }
 </style>
