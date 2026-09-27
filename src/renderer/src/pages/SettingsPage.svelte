@@ -38,16 +38,16 @@
 
 <main class="settings animate-in">
   <div class="settings-header">
-    <button class="back-btn" on:click={goBack}>← Back</button>
+    <button class="back-btn" onclick={goBack}>← Back</button>
     <h1>Settings</h1>
   </div>
 
   <div class="layout">
     <nav class="tabs">
-      <button class:active={activeTab === 'general'} on:click={() => (activeTab = 'general')}>General</button>
-      <button class:active={activeTab === 'session'} on:click={() => (activeTab = 'session')}>Session</button>
-      <button class:active={activeTab === 'network'} on:click={() => (activeTab = 'network')}>Network</button>
-      <button class:active={activeTab === 'privacy'} on:click={() => (activeTab = 'privacy')}>Privacy</button>
+      <button class:active={activeTab === 'general'} onclick={() => (activeTab = 'general')}>General</button>
+      <button class:active={activeTab === 'session'} onclick={() => (activeTab = 'session')}>Session</button>
+      <button class:active={activeTab === 'network'} onclick={() => (activeTab = 'network')}>Network</button>
+      <button class:active={activeTab === 'privacy'} onclick={() => (activeTab = 'privacy')}>Privacy</button>
     </nav>
 
     <div class="panel">
@@ -56,11 +56,11 @@
           <h2>General</h2>
           <label class="row">
             <span>Launch at startup</span>
-            <input type="checkbox" bind:checked={draft.general.launchAtStartup} on:change={updateDraft} />
+            <input type="checkbox" bind:checked={draft.general.launchAtStartup} onchange={updateDraft} />
           </label>
           <label class="row">
             <span>Theme</span>
-            <select bind:value={draft.general.theme} on:change={updateDraft}>
+            <select bind:value={draft.general.theme} onchange={updateDraft}>
               <option value="dark">Dark</option>
               <option value="light">Light</option>
               <option value="system">System</option>
@@ -68,13 +68,13 @@
           </label>
           <label class="row">
             <span>Language</span>
-            <select bind:value={draft.general.language} on:change={updateDraft}>
+            <select bind:value={draft.general.language} onchange={updateDraft}>
               <option value="en">English</option>
             </select>
           </label>
           <label class="row">
             <span>Notifications</span>
-            <input type="checkbox" bind:checked={draft.general.notifications} on:change={updateDraft} />
+            <input type="checkbox" bind:checked={draft.general.notifications} onchange={updateDraft} />
           </label>
         </section>
       {:else if activeTab === 'session'}
@@ -82,11 +82,11 @@
           <h2>Session</h2>
           <label class="row">
             <span>Default audio state</span>
-            <input type="checkbox" bind:checked={draft.session.defaultAudio} on:change={updateDraft} />
+            <input type="checkbox" bind:checked={draft.session.defaultAudio} onchange={updateDraft} />
           </label>
           <label class="row">
             <span>Cursor behavior</span>
-            <select bind:value={draft.session.cursorBehavior} on:change={updateDraft}>
+            <select bind:value={draft.session.cursorBehavior} onchange={updateDraft}>
               <option value="show">Always show</option>
               <option value="hide">Always hide</option>
               <option value="only-hover">Only on hover</option>
@@ -100,7 +100,7 @@
               max="7200"
               step="60"
               bind:value={draft.session.timeoutSeconds}
-              on:change={updateDraft}
+              onchange={updateDraft}
             />
           </label>
           <label class="row">
@@ -121,11 +121,11 @@
                 type="text"
                 placeholder="stun:stun.example.com:3478"
                 bind:value={draft.network.iceServers[i].urls}
-                on:change={updateDraft}
+                onchange={updateDraft}
               />
               <button
                 class="remove-btn"
-                on:click={() => {
+                onclick={() => {
                   draft.network.iceServers.splice(i, 1)
                   updateDraft()
                 }}
@@ -137,21 +137,21 @@
           {/each}
           <button
             class="add-btn"
-            on:click={() => {
+            onclick={() => {
               draft.network.iceServers.push({ urls: '' })
               updateDraft()
             }}
           >
             + Add ICE server
           </button>
-          <button class="diag-link" on:click={openDiagnostics}>Open connection diagnostics →</button>
+          <button class="diag-link" onclick={openDiagnostics}>Open connection diagnostics →</button>
         </section>
       {:else if activeTab === 'privacy'}
         <section class="group">
           <h2>Privacy</h2>
           <label class="row">
             <span>Telemetry</span>
-            <input type="checkbox" bind:checked={draft.privacy.telemetry} on:change={updateDraft} />
+            <input type="checkbox" bind:checked={draft.privacy.telemetry} onchange={updateDraft} />
           </label>
           <p class="desc">
             When disabled, no usage information is collected. Telemetry never includes your screen content.
@@ -162,13 +162,13 @@
           </div>
           <div class="row">
             <span>Clear local session data</span>
-            <button class="danger-btn" on:click={clearData}>Clear</button>
+            <button class="danger-btn" onclick={clearData}>Clear</button>
           </div>
         </section>
       {/if}
 
       <div class="save-row">
-        <button class="save-btn" on:click={save}>Save settings</button>
+        <button class="save-btn" onclick={save}>Save settings</button>
       </div>
     </div>
   </div>

@@ -111,7 +111,7 @@
   <div class="status-box">
     {#if error}
       <p class="err">{error}</p>
-      <button class="retry-btn" on:click={retry}>Try another code</button>
+      <button class="retry-btn" onclick={retry}>Try another code</button>
     {:else}
       <p class="status-msg">{statusMessage}</p>
       <p class="status-sub">Joining session {code}</p>

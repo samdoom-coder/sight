@@ -70,7 +70,7 @@
 </script>
 
 <main class="picker animate-in">
-  <button class="back-btn" on:click={goBack}>← Back</button>
+  <button class="back-btn" onclick={goBack}>← Back</button>
   <div class="heading">
     <h1>Share your screen</h1>
     <p class="sub">Pick what you want to share.</p>
@@ -97,8 +97,8 @@
   {/if}
 
   <div class="tabs">
-    <button class:active={filter === 'screen'} on:click={() => setFilter('screen')}>Screens</button>
-    <button class:active={filter === 'window'} on:click={() => setFilter('window')}>Windows</button>
+    <button class:active={filter === 'screen'} onclick={() => setFilter('screen')}>Screens</button>
+    <button class:active={filter === 'window'} onclick={() => setFilter('window')}>Windows</button>
   </div>
 
   {#if loading}
@@ -111,7 +111,7 @@
         <button
           class:selected={selectedId === source.id}
           class="source-card"
-          on:click={() => selectSource(source)}
+          onclick={() => selectSource(source)}
           aria-label={source.name}
         >
           {#if source.thumbnailDataUrl}
@@ -139,7 +139,7 @@
         {/if}
       </span>
     </div>
-    <button class="share-btn" on:click={startSharing} disabled={!selectedId}>
+    <button class="share-btn" onclick={startSharing} disabled={!selectedId}>
       Start sharing
     </button>
   </div>

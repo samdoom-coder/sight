@@ -82,7 +82,7 @@
 
 <main class="diag animate-in">
   <div class="header">
-    <button class="back-btn" on:click={goBack}>← Back</button>
+    <button class="back-btn" onclick={goBack}>← Back</button>
     <h1>Connection Diagnostics</h1>
     <span class="advanced-badge">Advanced</span>
   </div>
@@ -90,7 +90,7 @@
   {#if !active}
     <div class="empty">
       <p>No active session. Start or join a session to see live diagnostics.</p>
-      <button class="btn" on:click={() => navigate({ name: 'home' })}>Go to Home</button>
+      <button class="btn" onclick={() => navigate({ name: 'home' })}>Go to Home</button>
     </div>
   {:else}
     <div class="grid">
