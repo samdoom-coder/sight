@@ -48,12 +48,12 @@
 
 <style>
   .titlebar {
-    height: 40px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+    border-bottom: var(--border-w) solid var(--border);
     -webkit-app-region: drag;
     position: relative;
     z-index: 100;
@@ -76,21 +76,25 @@
     cursor: pointer;
   }
   .logo-mark {
-    width: 20px;
-    height: 20px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, var(--accent), #a855f7);
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: var(--accent);
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-xs);
+    transform: rotate(-1.5deg);
     display: flex;
     align-items: center;
     justify-content: center;
+    font-family: var(--font-logo);
     font-size: 12px;
-    font-weight: 800;
     color: #fff;
   }
   .logo-name {
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-family: var(--font-logo);
+    font-size: 15px;
+    letter-spacing: 0;
+    color: var(--text);
   }
   .controls {
     display: flex;
@@ -98,15 +102,15 @@
   }
   .ctrl {
     width: 44px;
-    height: 39px;
+    height: 41px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-dim);
-    transition: background 0.15s ease;
+    color: var(--text-muted);
+    transition: background 0.13s ease;
   }
   .ctrl:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-soft);
     color: var(--text);
   }
   .ctrl.close:hover {
