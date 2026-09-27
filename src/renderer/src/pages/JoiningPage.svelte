@@ -137,9 +137,13 @@
     width: 52px;
     height: 52px;
     border-radius: 50%;
-    border: 3px solid rgba(99, 102, 241, 0.15);
+    background: #fff;
+    border: 3.5px solid var(--border);
     border-top-color: var(--accent);
+    border-right-color: var(--teal);
+    border-bottom-color: var(--mustard);
     animation: spin 0.9s linear infinite;
+    box-shadow: 2px 2px 0 rgba(37, 40, 66, 0.12);
   }
   @keyframes spin {
     to {
@@ -161,16 +165,20 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--bg-card-hover);
-    border: 2px solid var(--border-strong);
+    background: #fff;
+    border: 2.5px solid var(--border);
     transition: all 0.3s ease;
   }
   .step-dot.done {
     background: var(--success);
-    border-color: var(--success);
+    border-color: var(--border);
   }
   .step-label {
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
     color: var(--text-faint);
     white-space: nowrap;
   }
@@ -179,35 +187,50 @@
   }
   .status-box {
     text-align: center;
-    max-width: 420px;
+    max-width: 440px;
+    background: var(--bg-card);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px 28px;
   }
   .status-msg {
     color: var(--text);
     font-size: 15px;
+    font-weight: 700;
   }
   .status-sub {
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: 13px;
     margin-top: 6px;
     font-family: var(--font-mono);
+    font-weight: 700;
   }
   .err {
     color: var(--danger);
-    font-size: 14px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
     line-height: 1.5;
   }
   .retry-btn {
     margin-top: 16px;
     padding: 11px 22px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-card-hover);
-    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: #fff;
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
-    font-size: 14px;
-    font-weight: 500;
-    transition: border-color 0.15s ease;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: all 0.13s ease;
   }
   .retry-btn:hover {
     border-color: var(--accent);
+    transform: translate(-1px, -1px);
+    box-shadow: var(--shadow-sm);
   }
 </style>
