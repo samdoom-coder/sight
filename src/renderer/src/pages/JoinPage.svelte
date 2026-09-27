@@ -65,88 +65,127 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 32px;
+    padding: 36px 16px 48px;
     overflow-y: auto;
   }
   .back-btn {
     position: absolute;
-    top: 64px;
+    top: 68px;
     left: 32px;
-    color: var(--text-dim);
-    font-size: 14px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    transition: background 0.15s ease, color 0.15s ease;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    transition: all 0.13s ease;
   }
   .back-btn:hover {
     background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
   }
   .card {
     width: 100%;
-    max-width: 420px;
+    max-width: 440px;
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 36px;
-    backdrop-filter: blur(12px);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 0 32px 32px;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    display: block;
+    height: 12px;
+    margin: 0 -32px 24px -32px;
+    background: linear-gradient(
+      90deg,
+      var(--accent) 0 33.333%,
+      var(--teal) 33.333% 66.666%,
+      var(--mustard) 66.666% 100%
+    );
+    border-bottom: var(--border-w) solid var(--border);
   }
   h1 {
-    font-size: 24px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-family: var(--font-logo);
+    font-size: 22px;
+    letter-spacing: 0;
   }
   .sub {
-    color: var(--text-dim);
-    font-size: 14px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
     margin-top: 6px;
     margin-bottom: 24px;
   }
   .code-input {
     width: 100%;
     padding: 16px;
-    border-radius: var(--radius);
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
     font-size: 24px;
     font-family: var(--font-mono);
+    font-weight: 800;
     letter-spacing: 0.2em;
     text-align: center;
-    transition: border-color 0.15s ease;
+    transition: all 0.13s ease;
   }
   .code-input:focus {
     outline: none;
     border-color: var(--accent);
+    box-shadow: var(--shadow-sm);
+    transform: translate(-1px, -1px);
   }
   .code-input::placeholder {
-    font-family: var(--font-sans);
-    letter-spacing: normal;
+    letter-spacing: 0.2em;
     color: var(--text-faint);
     font-size: 16px;
   }
   .error {
     color: var(--danger);
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
     margin-top: 10px;
+    text-align: center;
   }
   .connect-btn {
     width: 100%;
     margin-top: 20px;
     padding: 15px;
-    border-radius: var(--radius);
-    background: linear-gradient(120deg, var(--accent), #7c3aed);
+    border-radius: 12px;
+    background: var(--accent);
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-sm);
     color: #fff;
-    font-size: 15px;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+    transition: all 0.13s ease;
   }
   .connect-btn:hover {
-    transform: translateY(-1px);
+    background: var(--accent-hover);
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 var(--border);
+  }
+  .connect-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--border);
   }
 </style>
