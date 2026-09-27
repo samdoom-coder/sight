@@ -189,20 +189,27 @@
     gap: 16px;
   }
   .back-btn {
-    color: var(--text-dim);
-    font-size: 14px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    transition: background 0.15s ease, color 0.15s ease;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    transition: all 0.13s ease;
   }
   .back-btn:hover {
     background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
   }
   h1 {
+    font-family: var(--font-logo);
     font-size: 24px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
   }
   .layout {
     display: flex;
@@ -219,31 +226,37 @@
   .tabs button {
     text-align: left;
     padding: 10px 14px;
-    border-radius: var(--radius-sm);
-    font-size: 14px;
-    color: var(--text-dim);
-    transition: background 0.15s ease, color 0.15s ease;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border: 2px solid transparent;
+    transition: all 0.13s ease;
   }
   .tabs button.active {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    font-weight: 500;
+    background: var(--border);
+    color: #fff;
   }
   .tabs button:hover:not(.active) {
     background: var(--bg-card);
+    border-color: var(--border);
     color: var(--text);
   }
   .panel {
     flex: 1;
     max-width: 560px;
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
     padding: 28px;
   }
   .group h2 {
-    font-size: 16px;
-    font-weight: 600;
+    font-family: var(--font-logo);
+    font-size: 15px;
     margin-bottom: 18px;
   }
   .row {
@@ -251,19 +264,23 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 2px dashed rgba(37, 40, 66, 0.15);
     font-size: 14px;
+    font-weight: 600;
     color: var(--text);
     gap: 16px;
   }
   .row select,
   .row input[type='number'] {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    background: #fff;
+    border: 2.5px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-xs);
     padding: 8px 10px;
     color: var(--text);
+    font-family: var(--font-mono);
     font-size: 13px;
+    font-weight: 700;
   }
   .row input[type='checkbox'] {
     accent-color: var(--accent);
@@ -272,10 +289,12 @@
   }
   .hint {
     color: var(--text-faint);
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
   }
   .desc {
-    color: var(--text-dim);
+    color: var(--text-muted);
     font-size: 13px;
     line-height: 1.6;
     margin-bottom: 16px;
@@ -287,62 +306,75 @@
   }
   .ice-row input {
     flex: 1;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    background: #fff;
+    border: 2.5px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-xs);
     padding: 9px 12px;
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 12px;
+    font-weight: 700;
   }
   .remove-btn {
     width: 34px;
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text-faint);
-    transition: color 0.15s ease, border-color 0.15s ease;
+    transition: all 0.13s ease;
   }
   .remove-btn:hover {
-    color: var(--danger);
-    border-color: var(--danger);
+    color: #fff;
+    background: var(--danger);
+    border-color: var(--border);
   }
   .add-btn {
     margin-top: 6px;
     padding: 10px 16px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-card-hover);
-    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: #fff;
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
-    font-size: 13px;
-    font-weight: 500;
-    transition: border-color 0.15s ease;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    transition: all 0.13s ease;
   }
   .add-btn:hover {
     border-color: var(--accent);
+    color: var(--accent);
+    transform: translate(-1px, -1px);
+    box-shadow: var(--shadow-sm);
   }
   .diag-link {
     display: block;
     margin-top: 22px;
-    color: var(--accent-hover);
-    font-size: 13px;
-    font-weight: 500;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
   }
   .diag-link:hover {
     text-decoration: underline;
   }
   .danger-btn {
     padding: 7px 16px;
-    border-radius: var(--radius-sm);
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 8px;
+    background: #fff;
+    border: 2.5px solid var(--danger);
     color: var(--danger);
-    font-size: 13px;
-    font-weight: 500;
-    transition: background 0.15s ease;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    transition: all 0.13s ease;
   }
   .danger-btn:hover {
-    background: rgba(239, 68, 68, 0.22);
+    background: var(--danger);
+    color: #fff;
   }
   .save-row {
     margin-top: 26px;
@@ -351,14 +383,25 @@
   }
   .save-btn {
     padding: 12px 28px;
-    border-radius: var(--radius);
-    background: linear-gradient(120deg, var(--accent), #7c3aed);
+    border-radius: 12px;
+    background: var(--accent);
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-sm);
     color: #fff;
-    font-size: 14px;
-    font-weight: 600;
-    transition: transform 0.15s ease;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    transition: all 0.13s ease;
   }
   .save-btn:hover {
-    transform: translateY(-1px);
+    background: var(--accent-hover);
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 var(--border);
+  }
+  .save-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 var(--border);
   }
 </style>
