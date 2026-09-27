@@ -1,4 +1,4 @@
-# Sight
+# SIGHT
 ![Description of image](asset/cover-image.png)
 
 **Instant peer-to-peer screen sharing, made ridiculously simple.**
