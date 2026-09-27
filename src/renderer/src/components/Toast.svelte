@@ -26,15 +26,17 @@
   .toast {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: rgba(30, 30, 38, 0.92);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    font-size: 13px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-    animation: fade-in 0.25s ease;
+    gap: 10px;
+    padding: 11px 14px;
+    background: var(--text);
+    color: #fff;
+    border: 2.5px solid var(--border);
+    border-radius: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: var(--shadow-sm);
+    animation: fade-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .dot {
     width: 8px;
@@ -42,11 +44,15 @@
     border-radius: 50%;
     background: var(--accent);
   }
+  .toast-success {
+    background: #fff;
+    color: var(--text);
+  }
   .toast-success .dot {
     background: var(--success);
   }
   .toast-error .dot {
-    background: var(--danger);
+    background: #ff6b6b;
   }
   .toast-info .dot {
     background: var(--accent);
