@@ -27,9 +27,9 @@ encrypted peer-to-peer connection.
 
 | Layer       | Technology                                             |
 | ----------- | ------------------------------------------------------ |
-| Desktop     | Electron 31 · TypeScript · Svelte 4 · Vite 5            |
+| Desktop     | Electron 41 · TypeScript 5.9 · Svelte 5 · Vite 7         |
 | Networking  | WebRTC · WebSocket signaling · STUN · TURN · ICE       |
-| Server      | Node.js 20 · TypeScript · `ws`                          |
+| Server      | Node.js 22.12+ · TypeScript · `ws`                  |
 | Packaging   | electron-builder (NSIS / DMG / AppImage / deb)          |
 | Testing     | Vitest (unit + integration)                             |
 
