@@ -290,8 +290,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 16px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+    border-bottom: var(--border-w) solid var(--border);
     z-index: 20;
     flex-shrink: 0;
   }
@@ -319,17 +319,20 @@
     font-family: var(--font-mono);
   }
   .relay-badge {
+    font-family: var(--font-mono);
     font-size: 10px;
+    font-weight: 800;
     padding: 2px 7px;
     border-radius: 999px;
-    background: rgba(245, 158, 11, 0.15);
-    color: var(--warning);
+    background: var(--mustard);
+    border: 2px solid var(--border);
+    color: var(--text);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
   .relay-badge.direct {
-    background: rgba(34, 197, 94, 0.15);
-    color: var(--success);
+    background: var(--success);
+    color: #fff;
   }
   .controls {
     display: flex;
@@ -339,33 +342,40 @@
   .icon-btn {
     width: 34px;
     height: 34px;
-    border-radius: var(--radius-sm);
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-dim);
-    transition: background 0.15s ease, color 0.15s ease;
+    color: var(--text-muted);
+    border: 2px solid transparent;
+    transition: all 0.13s ease;
   }
   .icon-btn:hover {
-    background: var(--bg-card-hover);
+    background: var(--bg-soft);
+    border-color: var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
   }
   .icon-btn.active {
-    color: var(--accent);
+    color: #fff;
+    background: var(--border);
   }
   .end-btn {
     margin-left: 8px;
     padding: 8px 18px;
-    border-radius: var(--radius-sm);
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 8px;
+    background: #fff;
+    border: 2.5px solid var(--danger);
     color: var(--danger);
-    font-size: 13px;
-    font-weight: 600;
-    transition: background 0.15s ease;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    transition: all 0.13s ease;
   }
   .end-btn:hover {
-    background: rgba(239, 68, 68, 0.22);
+    background: var(--danger);
+    color: #fff;
   }
   .video-area {
     flex: 1;
@@ -422,8 +432,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 16px;
-    background: var(--bg);
-    border-top: 1px solid var(--border);
+    background: var(--bg-card);
+    border-top: var(--border-w) solid var(--border);
     flex-shrink: 0;
     z-index: 20;
   }
@@ -439,9 +449,12 @@
     gap: 6px;
     padding: 5px 10px;
     border-radius: 999px;
-    background: var(--bg-card);
-    font-size: 12px;
-    color: var(--text-dim);
+    background: #fff;
+    border: 2px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
     white-space: nowrap;
   }
   .p-dot {
@@ -486,7 +499,7 @@
   }
   .overlay-banner {
     position: absolute;
-    top: 56px;
+    top: 60px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 50;
@@ -494,11 +507,14 @@
     align-items: center;
     gap: 10px;
     padding: 10px 18px;
-    border-radius: var(--radius);
-    background: rgba(245, 158, 11, 0.15);
-    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 12px;
+    background: var(--mustard);
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-xs);
     color: var(--text);
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
   }
   .spinner-sm {
     width: 14px;
@@ -523,33 +539,45 @@
     background: var(--bg);
   }
   .disconnect-screen h2 {
+    font-family: var(--font-logo);
     font-size: 24px;
-    font-weight: 700;
   }
   .disconnect-screen p {
-    color: var(--text-dim);
-    font-size: 14px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
   }
   .btn-primary {
     margin-top: 10px;
     padding: 12px 26px;
-    border-radius: var(--radius);
-    background: linear-gradient(120deg, var(--accent), #7c3aed);
+    border-radius: 12px;
+    background: var(--accent);
+    border: 2.5px solid var(--border);
+    box-shadow: var(--shadow-sm);
     color: #fff;
-    font-size: 14px;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .btn-primary:hover {
+    background: var(--accent-hover);
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 var(--border);
   }
   .diagnostics-panel {
     position: absolute;
     right: 16px;
-    top: 56px;
+    top: 60px;
     width: 260px;
-    background: rgba(20, 20, 28, 0.95);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius);
+    background: var(--bg-card);
+    border: var(--border-w) solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
     padding: 14px;
     z-index: 40;
-    backdrop-filter: blur(12px);
   }
   .diag-row {
     display: flex;
