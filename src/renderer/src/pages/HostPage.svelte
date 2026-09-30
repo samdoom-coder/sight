@@ -96,13 +96,28 @@
   function copyCode(): void {
     if (!code) return
     navigator.clipboard.writeText(code)
+    flashCopied('code')
     showToast('Session code copied.', 'success')
   }
 
   function copyInviteLink(): void {
     if (!inviteUrl) return
     navigator.clipboard.writeText(inviteUrl)
+    flashCopied('link')
     showToast('Invite link copied.', 'success')
+  }
+
+  let copied: 'code' | 'link' | null = null
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+
+  function flashCopied(kind: 'code' | 'link'): void {
+    copied = kind
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = setTimeout(() => (copied = null), 1300)
+  }
+
+  function codeChars(): string[] {
+    return (code || '••••–•••').split('')
   }
 
   function goToViewer(): void {
@@ -132,21 +147,40 @@
       <p class="sub">Share this code to let someone join.</p>
     </div>
 
-    <div class="code-box">
-      <span class="code">{code || '••••–•••'}</span>
+    <div class="code-box" class:live={!!code}>
+      {#key code}
+        <span class="code" aria-live="polite">
+          {#each codeChars() as ch, i}
+            <span class="char" style="animation-delay: {i * 45}ms">{ch === '–' ? '–' : ch}</span>
+          {/each}
+        </span>
+      {/key}
       <span class="copy-hint">Copy it below or send the invite link.</span>
+      {#if !guestJoined && code}
+        <span class="radar" aria-hidden="true"><i></i><i></i><i></i></span>
+      {/if}
     </div>
 
     <div class="divider"></div>
 
     <div class="copy-row">
-      <button class="copy-btn" onclick={copyCode} disabled={!code}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-        Copy Code
+      <button class="copy-btn" class:copied={copied === 'code'} onclick={copyCode} disabled={!code}>
+        {#if copied === 'code'}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
+          Copied!
+        {:else}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          Copy Code
+        {/if}
       </button>
-      <button class="copy-btn" onclick={copyInviteLink} disabled={!inviteUrl}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-        Copy Invite Link
+      <button class="copy-btn" class:copied={copied === 'link'} onclick={copyInviteLink} disabled={!inviteUrl}>
+        {#if copied === 'link'}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
+          Copied!
+        {:else}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+          Copy Invite Link
+        {/if}
       </button>
     </div>
 
@@ -236,11 +270,18 @@
     margin-top: 6px;
   }
   .code-box {
+    position: relative;
     text-align: center;
     padding: 20px;
     border-radius: 12px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px dashed var(--border);
+    overflow: hidden;
+  }
+  .code-box.live {
+    border-style: solid;
+    border-color: var(--accent);
+    box-shadow: var(--shadow-xs), 0 0 0 4px var(--accent-soft);
   }
   .code {
     display: block;
@@ -249,6 +290,36 @@
     font-weight: 800;
     letter-spacing: 0.18em;
     color: var(--text);
+  }
+  .code .char {
+    display: inline-block;
+    animation: char-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes char-pop {
+    from { transform: translateY(14px) scale(0.7); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  .radar {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    width: 26px;
+    height: 26px;
+    pointer-events: none;
+  }
+  .radar i {
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--success);
+    border-radius: 50%;
+    opacity: 0;
+    animation: radar-ping 2s ease-out infinite;
+  }
+  .radar i:nth-child(2) { animation-delay: 0.65s; }
+  .radar i:nth-child(3) { animation-delay: 1.3s; }
+  @keyframes radar-ping {
+    0% { transform: scale(0.35); opacity: 0.9; }
+    100% { transform: scale(1.15); opacity: 0; }
   }
   .copy-hint {
     color: var(--text-faint);
@@ -277,7 +348,7 @@
     gap: 8px;
     padding: 12px;
     border-radius: 12px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     box-shadow: var(--shadow-xs);
     font-family: var(--font-mono);
@@ -292,6 +363,16 @@
     border-color: var(--accent);
     transform: translate(-1px, -1px);
     box-shadow: var(--shadow-sm);
+  }
+  .copy-btn.copied {
+    border-color: var(--success);
+    color: var(--success);
+    animation: copied-bounce 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes copied-bounce {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.06); }
+    100% { transform: scale(1); }
   }
   .copy-btn:disabled {
     opacity: 0.45;
@@ -334,7 +415,7 @@
     gap: 10px;
     padding: 12px 16px;
     border-radius: 12px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     border-left: 6px solid var(--success);
     box-shadow: var(--shadow-xs);
@@ -364,7 +445,7 @@
   .end-btn {
     padding: 12px 28px;
     border-radius: 12px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--danger);
     box-shadow: var(--shadow-xs);
     color: var(--danger);
