@@ -29,7 +29,7 @@
     gap: 10px;
     padding: 11px 14px;
     background: var(--text);
-    color: #fff;
+    color: var(--text-inverse);
     border: 2.5px solid var(--border);
     border-radius: 12px;
     font-family: var(--font-mono);
@@ -45,7 +45,7 @@
     background: var(--accent);
   }
   .toast-success {
-    background: #fff;
+    background: var(--surface);
     color: var(--text);
   }
   .toast-success .dot {
