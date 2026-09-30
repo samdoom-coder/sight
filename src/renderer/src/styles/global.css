@@ -4,9 +4,14 @@
   --bg-soft: #dfe3f0;
   --bg-card: #fffdf9;
   --bg-card-hover: #f4f1ff;
+  --surface: #ffffff;
+  --surface-2: #ffffff;
+  --overlay: rgba(255, 253, 249, 0.95);
   --border: #252842;
   --border-soft: #c6cbe2;
   --text: #252842;
+  --text-inverse: #ffffff;
+  --on-tint: #252842;
   --text-dim: #3a3e5c;
   --text-muted: #676b8c;
   --text-faint: #9a9ec0;
@@ -31,6 +36,39 @@
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-logo: 'Bungee', 'Space Grotesk', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+
+/* Dark theme: light brutalist outlines on deep navy. Shadows/borders reuse
+   --border so the whole UI flips with the variables — no per-page forks. */
+[data-theme='dark'] {
+  --bg: #111430;
+  --bg-dot: #2b3160;
+  --bg-soft: #1d2245;
+  --bg-card: #1a1f42;
+  --bg-card-hover: #232a52;
+  --surface: #232a52;
+  --surface-2: #2f3770;
+  --overlay: rgba(17, 20, 48, 0.94);
+  --border: #e8ebff;
+  --border-soft: #3a4170;
+  --text: #eef0ff;
+  --text-inverse: #191c38;
+  --on-tint: #191c38;
+  --text-dim: #c9cdf2;
+  --text-muted: #9aa0cf;
+  --text-faint: #6d74a8;
+  --accent: #7c7cf4;
+  --accent-hover: #8f8ff7;
+  --accent-press: #6a6aee;
+  --accent-soft: #2a2f5e;
+  --teal: #ff7a6e;
+  --teal-deep: #e05a4e;
+  --mustard: #7cc4ff;
+  --danger: #fb5b7e;
+  --success: #2dd598;
+  --warning: #ffd21f;
+  color-scheme: dark;
 }
 
 * {
@@ -57,6 +95,12 @@ body {
   user-select: none;
 }
 
+[data-theme='dark'] body {
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--bg-dot) 1.1px, transparent 0),
+    linear-gradient(180deg, rgba(124, 124, 244, 0.14) 0%, transparent 420px);
+}
+
 ::selection {
   background: var(--accent);
   color: #fff;
@@ -76,6 +120,16 @@ button {
 
 input {
   font-family: inherit;
+}
+
+:root input,
+:root select {
+  color-scheme: light;
+}
+
+[data-theme='dark'] input,
+[data-theme='dark'] select {
+  color-scheme: dark;
 }
 
 :focus-visible {
