@@ -129,7 +129,7 @@
     width: 100%;
     padding: 16px;
     border-radius: 12px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     box-shadow: var(--shadow-xs);
     color: var(--text);
