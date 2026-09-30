@@ -62,3 +62,22 @@ export async function saveSettings(next: AppSettings): Promise<void> {
   settings.set(next)
   if (window.desktop) await window.desktop.settings.set(next)
 }
+
+export type EffectiveTheme = 'light' | 'dark'
+
+export function resolveTheme(theme: AppSettings['general']['theme']): EffectiveTheme {
+  if (theme === 'light' || theme === 'dark') return theme
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+    return 'dark'
+  }
+  return 'light'
+}
+
+/** Apply the effective theme to <html data-theme>. Cheap + idempotent. */
+export function applyTheme(theme: AppSettings['general']['theme']): EffectiveTheme {
+  const effective = resolveTheme(theme)
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.theme = effective
+  }
+  return effective
+}
