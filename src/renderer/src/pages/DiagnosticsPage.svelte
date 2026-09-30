@@ -214,7 +214,7 @@
     gap: 14px;
   }
   .card {
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     border-radius: 12px;
     box-shadow: var(--shadow-xs);
@@ -248,7 +248,7 @@
     margin-bottom: 12px;
   }
   .cand-list {
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     border-radius: 12px;
     box-shadow: var(--shadow-xs);
