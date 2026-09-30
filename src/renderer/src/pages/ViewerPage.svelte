@@ -8,6 +8,7 @@
 
   let videoEl: HTMLVideoElement
   let containerEl: HTMLDivElement
+  let sparkEl: HTMLCanvasElement
   let phase = 'connecting'
   let metrics: ConnectionMetrics | null = null
   let participants: Participant[] = []
@@ -18,13 +19,90 @@
   let remoteStream: MediaStream | null = null
   let videoDimensions = { width: 0, height: 0 }
 
+  // RTT ring buffer — plain (non-reactive) so pushes never re-render.
+  // Drawn by a single throttled rAF (~10fps), paused when hidden/reduced.
+  const rttHistory: number[] = []
+
+  function drawSpark(): void {
+    if (!sparkEl) return
+    const ctx = sparkEl.getContext('2d')
+    if (!ctx) return
+    const w = sparkEl.width
+    const h = sparkEl.height
+    ctx.clearRect(0, 0, w, h)
+    if (rttHistory.length < 2) return
+    const max = Math.max(120, ...rttHistory)
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = qualityColor(metrics) === 'var(--text-faint)' ? '#9a9ec0' : String(qualityColor(metrics))
+    ctx.beginPath()
+    rttHistory.forEach((v, i) => {
+      const x = (i / (59)) * w
+      const y = h - 3 - (Math.min(v, max) / max) * (h - 6)
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.stroke()
+    // last-point dot
+    const last = rttHistory[rttHistory.length - 1]
+    const lx = ((rttHistory.length - 1) / 59) * w
+    const ly = h - 3 - (Math.min(last, max) / max) * (h - 6)
+    ctx.fillStyle = ctx.strokeStyle
+    ctx.beginPath()
+    ctx.arc(lx, ly, 2.2, 0, 6.2832)
+    ctx.fill()
+  }
+
+  function takeSnapshot(): void {
+    if (!videoEl || videoEl.videoWidth === 0) {
+      showToast('No video frame to capture yet.', 'error')
+      return
+    }
+    try {
+      const c = document.createElement('canvas')
+      c.width = videoEl.videoWidth
+      c.height = videoEl.videoHeight
+      const ctx = c.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(videoEl, 0, 0)
+      const url = c.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `sight-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
+      a.click()
+      showToast('Snapshot saved.', 'success')
+    } catch {
+      showToast('Could not capture snapshot.', 'error')
+    }
+  }
+
   onMount(async () => {
     const service = getService()
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    let sparkRaf = 0
+    let lastSpark = 0
+    let visible = true
+    const onVis = (): void => {
+      visible = !document.hidden
+    }
+    document.addEventListener('visibilitychange', onVis)
+    function sparkLoop(now: number): void {
+      sparkRaf = requestAnimationFrame(sparkLoop)
+      if (reduced || !visible || document.hidden) return
+      if (now - lastSpark < 100) return
+      lastSpark = now
+      drawSpark()
+    }
+    if (!reduced) sparkRaf = requestAnimationFrame(sparkLoop)
+
     const unsubPhase = sessionStore.subscribe((s) => {
       phase = s.phase
     })
     const unsubMetrics = service?.metrics.subscribe((m) => {
       metrics = m
+      if (m?.rtt != null) {
+        rttHistory.push(m.rtt)
+        if (rttHistory.length > 60) rttHistory.shift()
+      }
     })
     const unsubParticipants = service?.participants.subscribe((list) => {
       participants = list
@@ -43,6 +121,8 @@
     window.addEventListener('keydown', onKeydown)
 
     return () => {
+      cancelAnimationFrame(sparkRaf)
+      document.removeEventListener('visibilitychange', onVis)
       unsubPhase()
       unsubMetrics?.()
       unsubParticipants?.()
@@ -73,6 +153,10 @@
   function onKeydown(event: KeyboardEvent): void {
     if (event.key === 'f' || event.key === 'F') toggleFullscreen()
     if (event.key === 'Escape' && fullscreen) exitFullscreen()
+    if (event.key === 's' || event.key === 'S') takeSnapshot()
+    if (event.key === '1') fitMode = 'fit'
+    if (event.key === '2') fitMode = 'actual'
+    if (event.key === 'd' || event.key === 'D') toggleDiagnostics()
   }
 
   function toggleFullscreen(): void {
@@ -189,13 +273,16 @@
         <button class="icon-btn" class:active={cursorsVisible} title="Show / hide cursors" onclick={() => getService()?.toggleCursors()}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>
         </button>
-        <button class="icon-btn" title="Fit / actual size" onclick={toggleFitMode}>
+        <button class="icon-btn" title="Fit / actual size (1/2)" onclick={toggleFitMode}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
+        </button>
+        <button class="icon-btn" title="Snapshot (S)" onclick={takeSnapshot}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
         </button>
         <button class="icon-btn" title="Fullscreen (F)" onclick={toggleFullscreen}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
         </button>
-        <button class="icon-btn" title="Diagnostics" onclick={toggleDiagnostics}>
+        <button class="icon-btn" title="Diagnostics (D)" onclick={toggleDiagnostics}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>
         </button>
         <button class="end-btn" onclick={endSession}>End</button>
@@ -245,6 +332,7 @@
         {/each}
       </div>
       <div class="right">
+        <canvas class="spark" bind:this={sparkEl} width="120" height="30" aria-hidden="true" title="RTT history"></canvas>
         <span class="quality" style="color: {qualityColor(metrics)}">
           <span class="q-dot" style="background: {qualityColor(metrics)}"></span>
           {qualityLabel(metrics)}
@@ -357,14 +445,14 @@
     color: var(--text);
   }
   .icon-btn.active {
-    color: #fff;
+    color: var(--text-inverse);
     background: var(--border);
   }
   .end-btn {
     margin-left: 8px;
     padding: 8px 18px;
     border-radius: 8px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--danger);
     color: var(--danger);
     font-family: var(--font-mono);
@@ -449,7 +537,7 @@
     gap: 6px;
     padding: 5px 10px;
     border-radius: 999px;
-    background: #fff;
+    background: var(--surface);
     border: 2px solid var(--border);
     font-family: var(--font-mono);
     font-size: 11px;
@@ -496,6 +584,14 @@
     font-size: 12px;
     color: var(--text-dim);
     font-family: var(--font-mono);
+  }
+  .spark {
+    width: 120px;
+    height: 30px;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-xs);
   }
   .overlay-banner {
     position: absolute;
