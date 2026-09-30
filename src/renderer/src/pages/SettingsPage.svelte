@@ -238,7 +238,7 @@
   }
   .tabs button.active {
     background: var(--border);
-    color: #fff;
+    color: var(--text-inverse);
   }
   .tabs button:hover:not(.active) {
     background: var(--bg-card);
@@ -272,7 +272,7 @@
   }
   .row select,
   .row input[type='number'] {
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     border-radius: 8px;
     box-shadow: var(--shadow-xs);
@@ -306,7 +306,7 @@
   }
   .ice-row input {
     flex: 1;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     border-radius: 8px;
     box-shadow: var(--shadow-xs);
@@ -319,7 +319,7 @@
   .remove-btn {
     width: 34px;
     border-radius: 8px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     box-shadow: var(--shadow-xs);
     color: var(--text-faint);
@@ -334,7 +334,7 @@
     margin-top: 6px;
     padding: 10px 16px;
     border-radius: 8px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--border);
     box-shadow: var(--shadow-xs);
     color: var(--text);
@@ -364,7 +364,7 @@
   .danger-btn {
     padding: 7px 16px;
     border-radius: 8px;
-    background: #fff;
+    background: var(--surface);
     border: 2.5px solid var(--danger);
     color: var(--danger);
     font-family: var(--font-mono);
