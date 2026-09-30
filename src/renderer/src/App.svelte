@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { route } from './routes/router'
-  import { loadSettings, settings } from './services/config'
+  import { loadSettings, settings, applyTheme } from './services/config'
   import { sessionStore } from './stores/session'
   import Home from './pages/Home.svelte'
   import HostPicker from './pages/HostPicker.svelte'
@@ -18,6 +18,20 @@
 
   onMount(() => {
     loadSettings()
+    // Apply theme now + on every settings change (Settings page saves into
+    // the same store, so the whole app flips instantly).
+    const unsub = settings.subscribe(($s) => applyTheme($s.general.theme))
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
+    const onSystem = (): void => {
+      let mode: string = 'system'
+      settings.subscribe(($s) => (mode = $s.general.theme))()
+      if (mode === 'system') applyTheme('system')
+    }
+    mq?.addEventListener?.('change', onSystem)
+    return () => {
+      unsub()
+      mq?.removeEventListener?.('change', onSystem)
+    }
   })
 </script>
 
