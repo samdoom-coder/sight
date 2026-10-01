@@ -5,6 +5,7 @@ import { getPlatform, openExternal } from '../system'
 import { getSettings, setSettings, clearSessionData } from '../system/settings'
 import { getMainWindow } from '../window'
 import { getScreenCapturePermissionState } from '../permissions'
+import { checkForUpdates, currentVersion, downloadUpdate, installUpdate } from '../updates'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.capture.listSources, async (_event, kind: SourceKindFilter = 'all') => {
@@ -59,4 +60,9 @@ export function registerIpcHandlers(): void {
   ipcMain.on(IPC.telemetry.event, (_event, _name: string, _data?: Record<string, unknown>) => {
     // Telemetry is opt-in; when enabled events are queued. No data leaves the machine in this build.
   })
+
+  ipcMain.handle(IPC.updates.check, () => checkForUpdates())
+  ipcMain.handle(IPC.updates.download, () => downloadUpdate())
+  ipcMain.handle(IPC.updates.version, () => currentVersion())
+  ipcMain.on(IPC.updates.install, () => installUpdate())
 }
