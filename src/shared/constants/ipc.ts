@@ -21,5 +21,12 @@ export const IPC = {
   },
   telemetry: {
     event: 'telemetry:event'
+  },
+  updates: {
+    check: 'updates:check',
+    download: 'updates:download',
+    install: 'updates:install',
+    version: 'updates:version',
+    status: 'updates:status'
   }
 } as const
