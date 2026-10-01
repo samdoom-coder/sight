@@ -26,6 +26,19 @@ const api: DesktopApi = {
   telemetry: {
     event: (name, data) => ipcRenderer.send(IPC.telemetry.event, name, data)
   },
+  updates: {
+    version: () => ipcRenderer.invoke(IPC.updates.version),
+    check: () => ipcRenderer.invoke(IPC.updates.check),
+    download: () => ipcRenderer.invoke(IPC.updates.download),
+    install: () => ipcRenderer.send(IPC.updates.install),
+    onStatus: (cb) => {
+      const listener = (_event: unknown, status: unknown) => {
+        cb(status as import('../shared/types/desktop-api').UpdateStatusMsg)
+      }
+      ipcRenderer.on(IPC.updates.status, listener as (...args: unknown[]) => void)
+      return () => ipcRenderer.removeListener(IPC.updates.status, listener as (...args: unknown[]) => void)
+    }
+  },
   platform: process.platform
 }
 
