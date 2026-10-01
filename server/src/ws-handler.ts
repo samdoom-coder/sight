@@ -22,7 +22,19 @@ function sendToPeer(session: Session, peerId: string, message: SignalEnvelope): 
   }
 }
 
-export function handleConnection(ws: WebSocket, registry: SessionRegistry, log: (msg: string) => void): void {
+export interface ConnectionLimits {
+  ip?: string
+  canCreateSession?: (ip: string) => boolean
+  recordSessionCreated?: (ip: string, sessionId: string) => void
+  recordSessionEnded?: (ip: string, sessionId: string) => void
+}
+
+export function handleConnection(
+  ws: WebSocket,
+  registry: SessionRegistry,
+  log: (msg: string) => void,
+  limits?: ConnectionLimits
+): void {
   const rateLimiter = new RateLimiter(RATE_LIMIT_MAX_MESSAGES, RATE_LIMIT_WINDOW_MS)
   const peerId = generatePeerId()
   const state: {
@@ -74,6 +86,13 @@ export function handleConnection(ws: WebSocket, registry: SessionRegistry, log: 
           send(ws, { type: 'error', payload: { code: 'forbidden', message: 'Only hosts can create sessions.' } })
           return
         }
+        if (limits?.ip && limits.canCreateSession && !limits.canCreateSession(limits.ip)) {
+          send(ws, {
+            type: 'error',
+            payload: { code: 'session-limit', message: 'Too many active sessions from this address. Try again later.' }
+          })
+          return
+        }
         const p = msg.payload as { displayName: string }
         const hostPeer: SessionPeer = {
           id: peerId,
@@ -82,8 +101,11 @@ export function handleConnection(ws: WebSocket, registry: SessionRegistry, log: 
           ws,
           joinedAt: Date.now()
         }
-        const { session, code } = registry.createSession(hostPeer)
+        const { session, code } = registry.createSession(hostPeer, limits?.ip)
         state.sessionId = session.id
+        if (limits?.ip && limits.recordSessionCreated) {
+          limits.recordSessionCreated(limits.ip, session.id)
+        }
         send(ws, {
           type: 'session-created',
           payload: { sessionId: session.id, code, peerId, expiresAt: session.expiresAt }
@@ -190,7 +212,11 @@ export function handleConnection(ws: WebSocket, registry: SessionRegistry, log: 
               sendToPeer(session, peer.id, { type: 'peer-left', payload: { peerId }, sessionId: session.id })
             }
           }
+          const creatorIp = session.creatorIp
           registry.delete(session.id)
+          if (creatorIp && limits?.recordSessionEnded) {
+            limits.recordSessionEnded(creatorIp, session.id)
+          }
           log(`Session ended ${session.code}`)
         } else {
           for (const peer of registry.listPeers(session)) {
