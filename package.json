@@ -4,6 +4,10 @@
   "description": "Sight — instant peer-to-peer screen sharing made ridiculously simple.",
   "author": "Sight Team",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/samdoom-coder/sight.git"
+  },
   "main": "dist/main/index.cjs",
   "type": "module",
   "engines": {
@@ -31,8 +35,10 @@
     "server:prod": "npm run build:server && node dist/server/index.js"
   },
   "dependencies": {
-    "ws": "^8.22.0",
-    "nanoid": "^6.0.1"
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.9",
+    "nanoid": "^6.0.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^4.0.0",
@@ -40,6 +46,7 @@
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^22.20.4",
     "@types/ws": "^8.18.1",
+    "@vitest/ui": "^4.1.11",
     "cross-env": "^10.1.0",
     "electron": "^41.10.7",
     "electron-builder": "^26.15.3",
@@ -48,8 +55,7 @@
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
-    "vitest": "^4.1.11",
-    "@vitest/ui": "^4.1.11"
+    "vitest": "^4.1.11"
   },
   "build": {
     "appId": "app.sight.desktop",
@@ -62,20 +68,48 @@
       "dist/**/*",
       "package.json"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "samdoom-coder",
+        "repo": "sight"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
       ]
+    },
+    "dmg": {
+      "sign": false
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
       ]
     },
     "linux": {
       "category": "Network",
+      "maintainer": "Sight Team",
       "target": [
         "AppImage",
         "deb"
@@ -83,7 +117,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "differentialPackage": true
     }
   }
 }
