@@ -11,17 +11,19 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/sight
-# Uses the production build: npm run build:server first, or rely on server:prod.
-ExecStart=/usr/bin/npm run server:start
-Restart=on-failure
+# Uses the production bundle (run `npm run build:server` first).
+ExecStart=/usr/bin/node /opt/sight/dist/server/index.js
+Restart=always
 RestartSec=3
 User=sight
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8787
-Environment=ALLOWED_ORIGINS=*
+# NEVER use * in production — set your real app origins.
+Environment=ALLOWED_ORIGINS=app://sight
 Environment=SESSION_TTL_MS=1800000
 Environment=MAX_PARTICIPANTS=8
+Environment=MAX_SESSIONS_PER_IP=10
 
 [Install]
 WantedBy=multi-user.target
