@@ -1,15 +1,33 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
   import { navigate } from '../routes/router'
   import { settings, saveSettings, loadSettings } from '../services/config'
   import { showToast } from '../stores/toast'
+  import type { UpdateStatusMsg } from '../../../shared/types/desktop-api'
 
   let draft = $settings
-  let activeTab: 'general' | 'session' | 'network' | 'privacy' = 'general'
+  let activeTab: 'general' | 'session' | 'network' | 'privacy' | 'updates' = 'general'
+  let appVersion = '…'
+  let updateStatus: UpdateStatusMsg = { state: 'idle' }
+  let unsubscribeUpdates: (() => void) | null = null
 
   onMount(async () => {
     await loadSettings()
     draft = $settings
+    try {
+      appVersion = (await window.desktop?.updates.version()) ?? 'dev'
+    } catch {
+      appVersion = 'dev'
+    }
+    unsubscribeUpdates = window.desktop?.updates.onStatus((s) => {
+      updateStatus = s
+      if (s.state === 'downloaded') showToast(`Update ${s.version ?? ''} ready — restart to install.`, 'success')
+      if (s.state === 'error') showToast(s.message ?? 'Update check failed.', 'error')
+    }) ?? null
+  })
+
+  onDestroy(() => {
+    unsubscribeUpdates?.()
   })
 
   function updateDraft(): void {
@@ -31,6 +49,27 @@
     navigate({ name: 'diagnostics' })
   }
 
+  async function checkUpdates(): Promise<void> {
+    updateStatus = { state: 'checking' }
+    try {
+      await window.desktop?.updates.check()
+    } catch (e) {
+      updateStatus = { state: 'error', message: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  async function downloadUpdate(): Promise<void> {
+    try {
+      await window.desktop?.updates.download()
+    } catch (e) {
+      updateStatus = { state: 'error', message: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  function installUpdate(): void {
+    window.desktop?.updates.install()
+  }
+
   function goBack(): void {
     navigate({ name: 'home' })
   }
@@ -48,6 +87,7 @@
       <button class:active={activeTab === 'session'} onclick={() => (activeTab = 'session')}>Session</button>
       <button class:active={activeTab === 'network'} onclick={() => (activeTab = 'network')}>Network</button>
       <button class:active={activeTab === 'privacy'} onclick={() => (activeTab = 'privacy')}>Privacy</button>
+      <button class:active={activeTab === 'updates'} onclick={() => (activeTab = 'updates')}>Updates</button>
     </nav>
 
     <div class="panel">
@@ -163,6 +203,37 @@
           <div class="row">
             <span>Clear local session data</span>
             <button class="danger-btn" onclick={clearData}>Clear</button>
+          </div>
+        </section>
+      {:else if activeTab === 'updates'}
+        <section class="group">
+          <h2>Updates</h2>
+          <div class="row">
+            <span>Installed version</span>
+            <span class="hint">{appVersion}</span>
+          </div>
+          <div class="row">
+            <span>Status</span>
+            <span class="hint">
+              {#if updateStatus.state === 'idle'}Idle
+              {:else if updateStatus.state === 'checking'}Checking…
+              {:else if updateStatus.state === 'available'}Available: {updateStatus.version}
+              {:else if updateStatus.state === 'not-available'}Up to date ({updateStatus.version})
+              {:else if updateStatus.state === 'downloading'}Downloading… {updateStatus.percent ?? 0}%
+              {:else if updateStatus.state === 'downloaded'}Ready: {updateStatus.version}
+              {:else if updateStatus.state === 'error'}Error: {updateStatus.message}
+              {/if}
+            </span>
+          </div>
+          <p class="desc">Updates are published via GitHub Releases. Checking downloads nothing until you confirm.</p>
+          <div class="row">
+            <button class="add-btn" onclick={checkUpdates}>Check for updates</button>
+            {#if updateStatus.state === 'available'}
+              <button class="save-btn" onclick={downloadUpdate}>Download</button>
+            {/if}
+            {#if updateStatus.state === 'downloaded'}
+              <button class="save-btn" onclick={installUpdate}>Restart to install</button>
+            {/if}
           </div>
         </section>
       {/if}
