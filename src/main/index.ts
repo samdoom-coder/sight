@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { createMainWindow, registerWindowIpc, getMainWindow } from './window'
 import { registerIpcHandlers } from './ipc'
+import { initAutoUpdates } from './updates'
 
 let quitting = false
 
@@ -30,6 +31,7 @@ if (!gotTheLock) {
     registerWindowIpc()
 
     createMainWindow()
+    initAutoUpdates()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
