@@ -41,6 +41,21 @@ export const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES ?? 64 * 10
 
 export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '*').split(',').map((o) => o.trim())
 
+export const MAX_SESSIONS_PER_IP = Number(process.env.MAX_SESSIONS_PER_IP ?? 10)
+
+export const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS ?? 30_000)
+
+export const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000)
+
+export const SERVER_VERSION = process.env.SIGHT_SERVER_VERSION ?? '0.1.0'
+
+if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.includes('*')) {
+  console.warn(
+    '[sight] WARNING: ALLOWED_ORIGINS=* in production. Set it to your real origins ' +
+      '(e.g. ALLOWED_ORIGINS=app://sight) to prevent cross-site WebSocket hijacking.'
+  )
+}
+
 export const SESSION_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const SESSION_CODE_GROUPS = 2
 export const SESSION_CODE_GROUP_LEN = 3
