@@ -16,6 +16,7 @@ export interface Session {
   createdAt: number
   expiresAt: number
   peers: Map<string, SessionPeer>
+  creatorIp?: string
 }
 
 export class SessionRegistry {
@@ -26,7 +27,15 @@ export class SessionRegistry {
     return this.sessions.size
   }
 
-  createSession(hostPeer: SessionPeer): { session: Session; code: string } {
+  get peerCount(): number {
+    let total = 0
+    for (const session of this.sessions.values()) {
+      total += session.peers.size
+    }
+    return total
+  }
+
+  createSession(hostPeer: SessionPeer, creatorIp?: string): { session: Session; code: string } {
     let code = generateSessionCode()
     let guard = 0
     while (this.byCode.has(code) && guard < 10) {
@@ -39,7 +48,8 @@ export class SessionRegistry {
       hostId: hostPeer.id,
       createdAt: Date.now(),
       expiresAt: Date.now() + SESSION_TTL_MS,
-      peers: new Map([[hostPeer.id, hostPeer]])
+      peers: new Map([[hostPeer.id, hostPeer]]),
+      creatorIp
     }
     this.sessions.set(session.id, session)
     this.byCode.set(code, session.id)
@@ -81,14 +91,16 @@ export class SessionRegistry {
     return [...session.peers.values()]
   }
 
-  expire(): void {
-    const now = Date.now()
+  expire(now = Date.now()): Session[] {
+    const expired: Session[] = []
     for (const [id, session] of this.sessions) {
       if (session.expiresAt < now) {
         this.sessions.delete(id)
         this.byCode.delete(session.code)
+        expired.push(session)
       }
     }
+    return expired
   }
 
   delete(id: string): void {
