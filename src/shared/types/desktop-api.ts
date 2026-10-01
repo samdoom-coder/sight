@@ -25,5 +25,19 @@ export interface DesktopApi {
   telemetry: {
     event: (name: string, data?: Record<string, unknown>) => void
   }
+  updates: {
+    version: () => Promise<string>
+    check: () => Promise<void>
+    download: () => Promise<void>
+    install: () => void
+    onStatus: (cb: (status: UpdateStatusMsg) => void) => () => void
+  }
   platform: string
+}
+
+export interface UpdateStatusMsg {
+  state: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  message?: string
 }
