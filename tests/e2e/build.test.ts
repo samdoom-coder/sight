@@ -43,4 +43,14 @@ describe('e2e: production build artifacts', () => {
     expect(server).toContain('WebSocketServer')
     expect(server).toContain('connection')
   })
+
+  it('bundles auto-updates in main + preload + renderer', () => {
+    const main = read('dist/main/index.cjs')
+    expect(main).toContain('updates:status')
+    expect(main).toContain('quitAndInstall')
+    const preload = read('dist/preload/index.cjs')
+    expect(preload).toContain('updates:check')
+    const html = read('dist/renderer/index.html')
+    expect(html).toContain('assets/')
+  })
 })
