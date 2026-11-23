@@ -27,6 +27,7 @@ export class WebRTCService {
   private localStream: MediaStream | null = null
   private remoteStream: MediaStream | null = null
   private remoteAudioTrack: MediaStreamTrack | null = null
+  private audioTrack: MediaStreamTrack | null = null
   private readonly onDataChannelMessage: ((message: DataChannelMessage) => void) | null
 
   constructor(private readonly options: WebRtcServiceOptions) {
@@ -92,6 +93,10 @@ export class WebRTCService {
       for (const track of this.localStream.getTracks()) {
         pc.addTrack(track, this.localStream)
       }
+    }
+
+    if (this.audioTrack) {
+      pc.addTrack(this.audioTrack, this.localStream ?? new MediaStream([this.audioTrack]))
     }
 
     if (this.options.role === 'host') {
@@ -206,14 +211,22 @@ export class WebRTCService {
   }
 
   setAudioEnabled(enabled: boolean): void {
-    if (!this.localStream) return
-    for (const track of this.localStream.getAudioTracks()) {
-      track.enabled = enabled
+    if (this.audioTrack) {
+      this.audioTrack.enabled = enabled
+    }
+    if (this.localStream) {
+      for (const track of this.localStream.getAudioTracks()) {
+        track.enabled = enabled
+      }
     }
   }
 
   addAudioTrack(track: MediaStreamTrack): void {
-    if (!this.pc) return
+    if (!this.pc) {
+      this.audioTrack = track
+      return
+    }
+    this.audioTrack = track
     const sender = this.pc.getSenders().find((s) => s.track?.kind === 'audio')
     if (sender) {
       sender.replaceTrack(track).catch(() => {})
@@ -223,6 +236,7 @@ export class WebRTCService {
   }
 
   getAudioEnabled(): boolean {
+    if (this.audioTrack) return this.audioTrack.enabled
     if (!this.localStream) return false
     const track = this.localStream.getAudioTracks()[0]
     return track ? track.enabled : false
@@ -243,5 +257,6 @@ export class WebRTCService {
     this.localStream = null
     this.remoteStream = null
     this.remoteAudioTrack = null
+    this.audioTrack = null
   }
 }

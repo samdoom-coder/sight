@@ -4,6 +4,16 @@ import { getScreenCapturePermissionState } from '../permissions'
 
 export type SourceKindFilter = 'screen' | 'window' | 'all'
 
+let lastSelectedSourceId: string | null = null
+
+export function rememberCaptureSource(sourceId: string): void {
+  lastSelectedSourceId = sourceId
+}
+
+export function getRememberedCaptureSourceId(): string | null {
+  return lastSelectedSourceId
+}
+
 export async function listSources(kind: SourceKindFilter): Promise<CaptureSource[]> {
   const sources = await desktopCapturer.getSources({
     types: kind === 'all' ? ['screen', 'window'] : [kind],

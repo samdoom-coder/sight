@@ -1,9 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { navigate } from '../routes/router'
   import { normalizeSessionCode, formatSessionCode, isValidSessionCode } from '@shared/lib/session-code'
 
   let codeInput = ''
   let codeError = ''
+  let inputEl: HTMLInputElement
+
+  onMount(() => {
+    inputEl?.focus()
+  })
 
   function onCodeInput(event: Event): void {
     const raw = (event.currentTarget as HTMLInputElement).value
@@ -38,6 +44,7 @@
 
     <input
       class="code-input"
+      bind:this={inputEl}
       placeholder="8K4-X9P"
       oninput={onCodeInput}
       onkeydown={(e) => {
@@ -45,7 +52,6 @@
       }}
       maxlength="7"
       aria-label="Session code"
-      autofocus
     />
     {#if codeError}
       <p class="error">{codeError}</p>

@@ -1,9 +1,38 @@
 # Sight — Fix Log & Current Context
 
-> Last updated: 2026-09-21. This file exists so anyone picking up the project
+> Last updated: 2026-11-23. This file exists so anyone picking up the project
 > knows exactly what was broken, what was changed, and how to run it.
 > Base: `sight-main.zip` (Sight v0.1.0 — Electron 31 + Svelte 4 + Vite 5 +
 > WebRTC P2P screen sharing with a Node `ws` signaling server).
+
+## 0. Correctness/privacy patch (2026-11-23)
+
+- Viewer/Diagnostics now subscribe to the live `SessionService` stores instead of the
+  one-shot `sessionStore.phase` snapshot. Reconnect and "Session ended" states work again.
+- Fixed async `onMount` cleanups in Viewer/TitleBar that leaked global key handlers and
+  store subscriptions after navigation.
+- A guest pressing **End** now leaves the session instead of terminating the host's session;
+  host-only "ended" semantics are enforced.
+- Ending a session stops local screen/audio capture tracks and clears the pending stream.
+- Host audio: the "include system audio" flow no longer starts muted, mute actually disables
+  the captured track, audio is re-attached after a guest reconnects, and guest mute controls
+  are hidden (guests do not send audio).
+- Host tears down the peer connection when its guest leaves, so the next guest can connect.
+  `MAX_PARTICIPANTS` now defaults to 2 to match the 1:1 UI.
+- ICE restart now performs a real offer/answer renegotiation; guests wait for the host's
+  recovery offer. Disconnected state is debounced for 2.5s.
+- Cursor overlay maps into the actual letterboxed video rect; host cursor coordinates use the
+  selected display's bounds. Window shares do not draw a misleading cursor overlay.
+- Connection metrics now include inbound bitrate/FPS for viewers, resolve the video codec by
+  `codecId`, and expose frame dimensions.
+- RTT sparkline uses canvas-compatible colors; view gets a local preview for the host.
+- Server: sliding session TTL (the Settings idle-timeout value is now sent per session),
+  one hello/one session per socket, per-IP connection cap, `maxPayload`, proxy-aware client
+  IPs, sanitized code logging, active client drain on shutdown.
+- Electron: app-only `will-navigate` and permission handlers, IPC sender validation,
+  self-hosted fonts, tighter CSP.
+- Added `npm run check` (svelte-check) and wired it into CI; fixed the Home shake-animation
+  type error, removed the broken `dev:watch` script, and clarified the dev commands.
 
 ## 1. How to run (Windows PowerShell / macOS / Linux)
 
@@ -138,7 +167,8 @@ signaling round-trip), `npm run test` (52 tests), `npm run typecheck`.
   screen/window source, update GPU drivers).
 - No TURN by default: same-LAN works; internet/strict-NAT guests need
   `VITE_TURN_*` (coturn) — see `DEPLOYMENT.md`.
-- UI is currently 1 host + 1 guest; the server already supports up to
-  `MAX_PARTICIPANTS=8`.
-- Suggested follow-ups: multi-guest viewer UI, `electron-updater` wiring,
-  time-limited TURN credentials, ESLint.
+- UI is currently 1 host + 1 guest; `MAX_PARTICIPANTS` defaults to 2 so a
+  second guest gets `session-full` instead of hanging.
+- Suggested follow-ups: multi-guest viewer UI, session resume after a
+  signaling reconnect, time-limited TURN credentials, ESLint, signed
+  releases, and a browser-based guest viewer.

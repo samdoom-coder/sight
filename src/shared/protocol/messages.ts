@@ -39,6 +39,8 @@ export interface WelcomePayload {
 export interface CreateSessionPayload {
   displayName: string
   sourceKind: 'screen' | 'window' | null
+  /** Optional per-session idle timeout in milliseconds (clamped server-side). */
+  ttlMs?: number
 }
 
 export interface SessionCreatedPayload {

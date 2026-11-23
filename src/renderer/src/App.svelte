@@ -47,7 +47,7 @@
   {:else if $route.name === 'host-picker'}
     <HostPicker />
   {:else if $route.name === 'host'}
-    <HostPage sessionId={$route.sessionId} />
+    <HostPage />
   {:else if $route.name === 'join'}
     <JoinPage />
   {:else if $route.name === 'joining'}

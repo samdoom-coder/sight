@@ -6,10 +6,13 @@ import {
   ALLOWED_ORIGINS,
   HEARTBEAT_INTERVAL_MS,
   HOST,
+  MAX_CONNECTIONS_PER_IP,
+  MAX_MESSAGE_BYTES,
   MAX_SESSIONS_PER_IP,
   PORT,
   SERVER_VERSION,
-  SHUTDOWN_TIMEOUT_MS
+  SHUTDOWN_TIMEOUT_MS,
+  TRUST_PROXY
 } from './config'
 import { SessionRegistry } from './session/registry'
 import { encodeMessage } from './protocol/validate'
@@ -22,11 +25,36 @@ const sessionsPerIp = new Map<string, number>()
 const sessionIp = new Map<string, string>()
 
 function getClientIp(req: IncomingMessage): string {
-  const forwarded = req.headers['x-forwarded-for']
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim()
+  if (TRUST_PROXY) {
+    // Prefer X-Real-IP, which our nginx example sets from $remote_addr.
+    const realIp = req.headers['x-real-ip']
+    if (typeof realIp === 'string' && realIp.length > 0) {
+      return realIp.trim()
+    }
+    // If only X-Forwarded-For is available, use the value appended by the
+    // nearest trusted proxy (the last hop), not a client-supplied first value.
+    const forwarded = req.headers['x-forwarded-for']
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+      const hops = forwarded.split(',').map((h) => h.trim()).filter(Boolean)
+      if (hops.length > 0) return hops[hops.length - 1]
+    }
   }
   return req.socket.remoteAddress ?? 'unknown'
+}
+
+const connectionsPerIp = new Map<string, number>()
+
+function acquireConnection(ip: string): boolean {
+  const current = connectionsPerIp.get(ip) ?? 0
+  if (current >= MAX_CONNECTIONS_PER_IP) return false
+  connectionsPerIp.set(ip, current + 1)
+  return true
+}
+
+function releaseConnection(ip: string): void {
+  const current = connectionsPerIp.get(ip) ?? 0
+  if (current <= 1) connectionsPerIp.delete(ip)
+  else connectionsPerIp.set(ip, current - 1)
 }
 
 function setSecurityHeaders(res: { setHeader: (k: string, v: string) => void }): void {
@@ -64,7 +92,12 @@ const httpServer = createServer((req, res) => {
   res.end('Not found')
 })
 
-const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
+const wss = new WebSocketServer({
+  server: httpServer,
+  path: '/ws',
+  // Reject oversized frames before ws buffers them (default is 100 MiB).
+  maxPayload: MAX_MESSAGE_BYTES
+})
 
 function canCreateSession(ip: string): boolean {
   return (sessionsPerIp.get(ip) ?? 0) < MAX_SESSIONS_PER_IP
@@ -93,6 +126,12 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     return
   }
   const ip = getClientIp(req)
+  if (!acquireConnection(ip)) {
+    log(`Rejected connection from ${ip} (connection limit)`)
+    ws.close(4429, 'Too many connections')
+    return
+  }
+  ws.once('close', () => releaseConnection(ip))
   ;(ws as unknown as { isAlive: boolean }).isAlive = true
   ws.on('pong', () => {
     ;(ws as unknown as { isAlive: boolean }).isAlive = true
@@ -146,6 +185,11 @@ function shutdown(signal: string): void {
   log(`Received ${signal}, draining...`)
   clearInterval(heartbeat)
   clearInterval(expirer)
+  // Stop accepting, then actively close connected clients. wss.close() alone
+  // waits for every client to leave and will otherwise hit the forced timeout.
+  for (const client of wss.clients) {
+    client.close(1001, 'Server shutting down')
+  }
   wss.close(() => {
     httpServer.close(() => {
       log('Shutdown complete')

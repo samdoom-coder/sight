@@ -16,13 +16,17 @@ encrypted peer-to-peer connection.
 - **Real WebRTC** — true `RTCPeerConnection` media transport, not a demo or simulation
 - **Direct P2P by default** — screen/audio traffic flows peer-to-peer whenever the network allows it
 - **TURN fallback** — automatic relay when direct connectivity is impossible
-- **Multi-cursor collaboration** — see every participant's cursor with unique colors,
-  smoothed and throttled over a WebRTC data channel
+- **Remote cursor overlay** — the host's cursor appears on the viewer, smoothed and throttled
+  over a WebRTC data channel
 - **Live connection quality** — RTT, bitrate, frame rate, packet loss, direct/relay type
 - **Robust error handling** — clear, human explanations for every failure
 - **No accounts, no telemetry by default** — privacy-respecting by design
 - **Secure by construction** — `contextIsolation`, sandboxed renderer, tightly scoped IPC,
   ephemeral server-side sessions
+
+> **Current scope:** one host + one guest per session. The server and protocol are ready for
+> more peers, but the UI and peer-connection manager are deliberately 1:1 for now. Group
+> viewing is tracked as a follow-up.
 
 ## Tech stack
 
@@ -43,9 +47,11 @@ npm install
 # 2. Start the signaling server (terminal 1)
 npm run server
 
-# 3. Start the desktop app in dev mode (terminal 2)
-npm run dev        # renderer (Vite dev server)
-npm run dev:main   # Electron main process
+# 3. Start the Vite renderer (terminal 2)
+npm run dev
+
+# 4. Build main/preload and launch Electron (terminal 3)
+npm run dev:main
 ```
 
 The dev flow uses `electron .` after building `dist/`. See [DEVELOPMENT.md](./DEVELOPMENT.md)
@@ -56,12 +62,13 @@ for the full development workflow.
 | Script           | Description                                        |
 | ---------------- | -------------------------------------------------- |
 | `npm run dev`    | Vite dev server for the renderer                   |
-| `npm run dev:main` | Watch-mode Electron main process                  |
+| `npm run dev:main` | Build main/preload and launch Electron at the Vite server |
 | `npm run build`  | Build main, preload, server, and renderer           |
 | `npm run start`  | Launch the packaged `dist/` build in Electron       |
 | `npm run package`| Build installers for the current platform           |
 | `npm run test`   | Run unit, integration and e2e tests (Vitest)       |
 | `npm run typecheck` | Type-check main, renderer, and server            |
+| `npm run check`  | Svelte template/type checks (`svelte-check`)        |
 | `npm run server` | Run the signaling server from source                |
 
 ## How it works

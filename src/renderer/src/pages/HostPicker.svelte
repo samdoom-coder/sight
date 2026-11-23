@@ -4,6 +4,7 @@
   import { ScreenCaptureService } from '../services/ScreenCaptureService'
   import { showToast } from '../stores/toast'
   import { settings } from '../services/config'
+  import { getSessionService, clearActiveSession } from '../stores/session'
   import type { CaptureSource } from '@shared/types/models'
 
   const capture = new ScreenCaptureService(window.desktop?.platform ?? 'unknown')
@@ -69,6 +70,8 @@
   }
 
   function onGridKeydown(e: KeyboardEvent): void {
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault()
       moveSelection(1)
@@ -87,15 +90,21 @@
       return
     }
     try {
+      const source = sources.find((s) => s.id === selectedId)
       const stream = await capture.captureSource(selectedId)
       if (!stream) {
         showToast('Could not capture the selected source.', 'error')
         return
       }
+      // Starting a new share replaces any session the user left running only
+      // after the new capture succeeded.
+      if (getSessionService()) clearActiveSession()
       sessionStorage.setItem('sight-pending-stream', '1')
       sessionStorage.setItem('sight-audio', includeAudio ? '1' : '0')
+      sessionStorage.setItem('sight-source-kind', filter)
+      sessionStorage.setItem('sight-display-id', source?.display_id ?? '')
       window.__sightPendingStream = stream
-      navigate({ name: 'host', sessionId: '' })
+      navigate({ name: 'host' })
     } catch (err) {
       showToast(`Could not start capture: ${(err as Error).message}`, 'error')
     }
@@ -106,7 +115,9 @@
   }
 </script>
 
-<main class="picker animate-in" onkeydown={onGridKeydown}>
+<svelte:window onkeydown={onGridKeydown} />
+
+<main class="picker animate-in">
   <button class="back-btn" onclick={goBack}>← Back</button>
   <div class="heading">
     <h1>Share your screen</h1>

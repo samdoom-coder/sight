@@ -32,7 +32,10 @@ export const PORT = Number(process.env.PORT ?? 8787)
 export const HOST = process.env.HOST ?? '0.0.0.0'
 
 export const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 30 * 60 * 1000)
-export const MAX_PARTICIPANTS = Number(process.env.MAX_PARTICIPANTS ?? 8)
+// The desktop UI currently supports one host + one guest. Keep the server
+// default aligned so a second guest gets a clear "session full" response
+// instead of joining and waiting for an offer that never comes.
+export const MAX_PARTICIPANTS = Number(process.env.MAX_PARTICIPANTS ?? 2)
 
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 1000)
 export const RATE_LIMIT_MAX_MESSAGES = Number(process.env.RATE_LIMIT_MAX_MESSAGES ?? 60)
@@ -42,6 +45,14 @@ export const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES ?? 64 * 10
 export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '*').split(',').map((o) => o.trim())
 
 export const MAX_SESSIONS_PER_IP = Number(process.env.MAX_SESSIONS_PER_IP ?? 10)
+
+// Set TRUST_PROXY=1 only when the server is behind a reverse proxy you control
+// (nginx/Caddy). Otherwise X-Forwarded-For is attacker-controlled.
+export const TRUST_PROXY = ['1', 'true', 'yes', 'on'].includes(
+  (process.env.TRUST_PROXY ?? '').toLowerCase()
+)
+
+export const MAX_CONNECTIONS_PER_IP = Number(process.env.MAX_CONNECTIONS_PER_IP ?? 20)
 
 export const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS ?? 30_000)
 

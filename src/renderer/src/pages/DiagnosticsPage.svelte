@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { navigate } from '../routes/router'
-  import { sessionStore } from '../stores/session'
+  import { getSessionService } from '../stores/session'
   import type { ConnectionMetrics, ConnectionPhase } from '@shared/types/models'
 
+  let service: ReturnType<typeof getSessionService> = null
   let phase: ConnectionPhase = 'idle'
   let signalingStatus = 'idle'
   let metrics: ConnectionMetrics | null = null
@@ -11,39 +12,30 @@
   let iceCandidates: Array<{ type: string; protocol: string; address: string; port: number; priority: number }> = []
 
   onMount(() => {
-    const service = getService()
-    const unsubPhase = sessionStore.subscribe((s) => {
-      phase = s.phase
-      signalingStatus = s.service?.getSignalingStatus?.() ?? 'idle'
-      active = !!s.service
+    service = getSessionService()
+    if (!service) return
+    active = true
+    const unsubPhase = service.phase.subscribe((p) => {
+      phase = p
     })
-    const unsubMetrics = service?.metrics.subscribe((m) => {
+    const unsubSignaling = service.signalingStatus.subscribe((s) => {
+      signalingStatus = s
+    })
+    const unsubMetrics = service.metrics.subscribe((m) => {
       metrics = m
     })
-    refreshCandidates()
+    void refreshCandidates()
 
-    const timer = setInterval(refreshCandidates, 4000)
+    const timer = setInterval(() => void refreshCandidates(), 4000)
     return () => {
       unsubPhase()
-      unsubMetrics?.()
+      unsubSignaling()
+      unsubMetrics()
       clearInterval(timer)
     }
   })
 
-  function getService() {
-    let value: { service: unknown } | null = null
-    sessionStore.subscribe((s) => {
-      value = s
-    })()
-    return value?.service as {
-      metrics: { subscribe: (fn: (m: ConnectionMetrics | null) => void) => () => void }
-      getSignalingStatus: () => string
-      getPeerConnection: () => RTCPeerConnection | null
-    } | null
-  }
-
   async function refreshCandidates(): Promise<void> {
-    const service = getService()
     const pc = service?.getPeerConnection()
     if (!pc) return
     try {

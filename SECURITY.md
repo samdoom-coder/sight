@@ -28,6 +28,9 @@ Security goals:
 | `nodeIntegration`     | `false`                  | No Node globals in the renderer                            |
 | `sandbox`             | `true`                   | Preload runs sandboxed; renderer has no Node access        |
 | `webSecurity`         | `true`                   | Standard web security enforced                             |
+| `will-navigate`       | app URL only             | Blocks renderer navigation to remote origins               |
+| Permission handler    | app URL only             | Denies camera/mic/etc. to any non-app origin               |
+| IPC sender check      | trusted URL required     | Rejects IPC from unexpected frames/origins                 |
 | `setWindowOpenHandler`| external links only      | No new Electron windows / arbitrary navigation             |
 
 The preload exposes a single object `window.desktop` with a **tightly scoped API**
@@ -35,9 +38,9 @@ The preload exposes a single object `window.desktop` with a **tightly scoped API
 controls, settings, and telemetry events. It never exposes `ipcRenderer` directly, `require`,
 `process`, or the filesystem.
 
-IPC channels are allow-listed in `src/shared/constants/ipc.ts`. The main process validates
-the shape of every argument before acting (e.g., the capture source must exist, external URLs
-must be `http(s)`).
+IPC channels are allow-listed in `src/shared/constants/ipc.ts`. Every handler checks that the
+sender URL is the app (dev server or `dist/renderer`), and the main process validates
+arguments before acting (e.g., the capture source must exist, external URLs must be `http(s)`).
 
 ## 3. Renderer CSP
 
@@ -45,11 +48,13 @@ The renderer `index.html` ships a strict Content-Security-Policy:
 
 ```
 default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob:; media-src 'self' blob:;
-connect-src 'self' ws: wss:; font-src 'self' data:
+img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:;
+font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'
 ```
 
-This blocks remote script injection, inline scripts, and unexpected network origins.
+This blocks remote script injection, inline scripts, and unexpected network origins. Fonts
+are bundled with the app instead of loaded from Google Fonts, so startup does not leak the
+user's IP or depend on network access.
 
 ## 4. Signaling security
 
@@ -58,9 +63,16 @@ This blocks remote script injection, inline scripts, and unexpected network orig
 - **Message validation** — every message is validated against a type allow-list with payload
   shape checks (`server/src/protocol/validate.ts`). Malformed messages are rejected and never
   routed.
-- **Size limits** — messages larger than `MAX_MESSAGE_BYTES` are dropped.
+- **Size limits** — `ws` rejects frames larger than `MAX_MESSAGE_BYTES` before buffering;
+  the handler also checks the decoded size.
+- **Connection limits** — `MAX_CONNECTIONS_PER_IP` caps concurrent WebSocket sockets per
+  address, and `MAX_SESSIONS_PER_IP` caps active sessions.
 - **Rate limiting** — per-connection token-bucket limiter (`RATE_LIMIT_WINDOW_MS`,
   `RATE_LIMIT_MAX_MESSAGES`) prevents abuse.
+- **Proxy-aware IPs** — `X-Forwarded-For`/`X-Real-IP` are only trusted with `TRUST_PROXY=1`;
+  otherwise the socket address is used, so clients cannot spoof their way around per-IP limits.
+- **State guards** — one hello, one session per connection; repeated `create-session` /
+  `join-session` attempts are rejected instead of leaving orphaned sessions.
 - **Role enforcement** — only `host` sockets may `create-session`; only `guest` sockets may
   `join-session`.
 - **Relay scoping** — SDP/ICE messages are only relayed to peers that are actually members of
@@ -69,12 +81,13 @@ This blocks remote script injection, inline scripts, and unexpected network orig
 ## 5. Session security
 
 - **Cryptographically strong ids** — session ids and peer ids are generated with
-  `node:crypto.randomBytes` (256-bit and 192-bit respectively).
+  `node:crypto.randomBytes` (128-bit and 96-bit respectively).
 - **Unambiguous short codes** — codes use a 32-character alphabet without lookalike
   characters (`A-F`, `J-K`, etc.), generated with CSPRNG bytes. Short codes are convenient,
   not a security boundary — treat them like a meeting PIN.
-- **Ephemeral sessions** — session state lives in memory only, expires after
-  `SESSION_TTL_MS`, and is destroyed when the host disconnects. No history is stored.
+- **Ephemeral sessions** — session state lives in memory only, has a sliding idle expiry
+  (`SESSION_TTL_MS`, refreshed by signaling activity), and is destroyed when the host
+  disconnects. No history is stored.
 - **No persistence** — the signaling server stores no screen data and no session history.
 
 ## 6. Transport security
@@ -99,7 +112,7 @@ requirements are:
 - **Telemetry is opt-in and off by default.** When enabled, only non-sensitive events are
   queued locally in this build; nothing leaves the machine without a deployed collector.
 - Settings are stored locally in the OS user-data directory.
-- "Clear local session data" removes stored settings.
+- "Reset app settings" removes the locally stored settings file.
 - No accounts. No tracking cookies. No analytics SDKs.
 
 ## 9. Reporting

@@ -1,7 +1,8 @@
-import { BrowserWindow, app, shell } from 'electron'
-import { join, dirname } from 'node:path'
+import { BrowserWindow, app, shell, desktopCapturer } from 'electron'
+import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
+import { getRememberedCaptureSourceId } from '../capture'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -35,6 +36,20 @@ function resolveRendererIndex(): string {
 export function createMainWindow(): BrowserWindow {
   const preloadPath = resolvePreloadPath()
   const rendererIndex = resolveRendererIndex()
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL
+  const rendererUrl = pathToFileURL(rendererIndex).href
+  const isAppUrl = (url: string): boolean => {
+    if (url === 'about:blank') return true
+    if (devServerUrl) {
+      try {
+        return new URL(url).origin === new URL(devServerUrl).origin
+      } catch {
+        return false
+      }
+    }
+    return url === rendererUrl || url.startsWith(`${rendererUrl}#`)
+  }
+
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 720,
@@ -55,6 +70,43 @@ export function createMainWindow(): BrowserWindow {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAppUrl(url)) {
+      event.preventDefault()
+    }
+  })
+
+  const appSession = mainWindow.webContents.session
+  appSession.setPermissionRequestHandler((webContents, _permission, callback) => {
+    callback(isAppUrl(webContents.getURL()))
+  })
+  appSession.setPermissionCheckHandler((webContents, _permission) => {
+    if (!webContents) return false
+    return isAppUrl(webContents.getURL())
+  })
+
+  // Electron requires a handler for getDisplayMedia(). The app uses it only to
+  // attach system audio (the main screen stream comes from getUserMedia), so
+  // reuse the source the user just selected when possible.
+  appSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen'] })
+      const wanted = getRememberedCaptureSourceId()
+      const source = sources.find((s) => s.id === wanted) ?? sources[0]
+      if (!source) {
+        callback({})
+        return
+      }
+      if (process.platform === 'win32') {
+        callback({ video: source, audio: 'loopback' })
+      } else {
+        callback({ video: source })
+      }
+    } catch {
+      callback({})
+    }
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

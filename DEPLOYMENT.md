@@ -47,11 +47,20 @@ export PORT=8787
 export HOST=0.0.0.0
 export SIGNALING_URL=wss://signal.example.com   # for the app env, not the server itself
 export SESSION_TTL_MS=1800000
-export MAX_PARTICIPANTS=8
+export MAX_PARTICIPANTS=2
 export ALLOWED_ORIGINS=app://sight,https://sight.example.com
+export TRUST_PROXY=1
+export MAX_CONNECTIONS_PER_IP=20
 
 node dist/server/index.js
 ```
+
+`SESSION_TTL_MS` is a sliding idle timeout: valid signaling traffic (including the app's
+20s heartbeat) keeps an active session alive. `MAX_PARTICIPANTS=2` matches the current
+host+guest UI; raise it only when group viewing is implemented.
+
+Set `TRUST_PROXY=1` **only** when the server is behind a reverse proxy you control.
+Otherwise `X-Forwarded-For` is attacker-controlled and the per-IP limits can be bypassed.
 
 Use `pm2`, `systemd`, or a container to keep it running. Ready-to-adapt examples are in [`deploy/`](../deploy): `nginx.conf.example` (TLS + WebSocket upgrade) and `sight-signaling.service.example` (systemd).
 
@@ -104,6 +113,8 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 3600s;
     }
 }
@@ -142,7 +153,9 @@ realm=turn.example.com
 fingerprint
 lt-cred-mech
 
-# Static credentials (rotate regularly). Better: use a REST API / time-limited credentials.
+# Static credentials (rotate regularly).
+# For production prefer REST/time-limited credentials: the values in
+# .env.production are bundled into the desktop app and can be extracted.
 user=sight:CHANGE_ME_STRONG_PASSWORD
 
 # Optional: allow LAN traffic only where appropriate
@@ -211,12 +224,15 @@ Artifacts land in `release/`:
 
 ### Auto-updates
 
-Sight's version lives only in `package.json`, so wiring `electron-updater` later is
-straightforward:
+`electron-updater` is already wired up. Packaged builds check GitHub Releases after startup;
+downloads require user confirmation. To ship updates:
 
-1. Add `electron-updater` as a dependency.
-2. Configure `publish` in the `build` block (GitHub Releases, generic server, etc.).
-3. In `src/main`, check for updates on app start and install on quit.
+1. Bump `version` in `package.json`.
+2. Sign and notarize macOS builds (auto-update requires it) and sign Windows installers.
+3. Tag the release (`v*`); the release workflow builds and publishes artifacts.
+
+Without signing, users can install manually but macOS auto-update will not work and Windows
+will show SmartScreen warnings.
 
 ## 6. Operations checklist
 

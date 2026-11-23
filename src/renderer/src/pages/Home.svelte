@@ -16,7 +16,6 @@
   let inputEl: HTMLInputElement
   let canvasEl: HTMLCanvasElement
   let previewEl: HTMLElement
-  let shakeKey = 0
 
   // NOTE: tilt/glow/magnetic values are intentionally NOT Svelte reactive state.
   // They update every mousemove/frame — keeping them in plain locals inside
@@ -71,12 +70,21 @@
     const normalized = normalizeSessionCode(codeInput)
     if (!isValidSessionCode(normalized)) {
       codeError = 'Enter a valid session code like 8K4-X9P.'
-      shakeKey += 1
+      triggerShake()
       inputEl?.focus()
       return
     }
     burstFrom(joinBtn)
     setTimeout(() => navigate({ name: 'joining', code: formatSessionCode(normalized) }), 140)
+  }
+
+  function triggerShake(): void {
+    if (!inputEl) return
+    inputEl.classList.remove('shake')
+    // Force a style flush so the animation can replay on repeated failures.
+    void inputEl.offsetWidth
+    inputEl.classList.add('shake')
+    inputEl.addEventListener('animationend', () => inputEl.classList.remove('shake'), { once: true })
   }
 
   function openSettings(): void {
@@ -666,7 +674,7 @@
       <div class="stat-row" aria-hidden="true">
         <div class="stat"><b>{connectStat.toFixed(1)}s</b><span>median connect</span></div>
         <div class="stat"><b>0 B</b><span>via server</span></div>
-        <div class="stat"><b>256-bit</b><span>E2E media</span></div>
+        <div class="stat"><b>DTLS</b><span>E2E media</span></div>
       </div>
 
       <section class="card" bind:this={cardEl}>
@@ -702,8 +710,6 @@
             <input
               bind:this={inputEl}
               class="code-input"
-              class:shake={shakeKey > 0}
-              key={shakeKey}
               placeholder={animatedPlaceholder}
               value={codeInput}
               oninput={onCodeInput}
@@ -738,8 +744,8 @@
 
         <div class="marquee" aria-hidden="true">
           <div class="marquee-track">
-            <span>WebRTC</span><i>•</i><span>STUN / TURN</span><i>•</i><span>multi-cursor</span><i>•</i><span>60 fps</span><i>•</i><span>data-channel</span><i>•</i><span>ICE restart</span><i>•</i>
-            <span>WebRTC</span><i>•</i><span>STUN / TURN</span><i>•</i><span>multi-cursor</span><i>•</i><span>60 fps</span><i>•</i><span>data-channel</span><i>•</i><span>ICE restart</span><i>•</i>
+            <span>WebRTC</span><i>•</i><span>STUN / TURN</span><i>•</i><span>cursor overlay</span><i>•</i><span>60 fps</span><i>•</i><span>data-channel</span><i>•</i><span>ICE restart</span><i>•</i>
+            <span>WebRTC</span><i>•</i><span>STUN / TURN</span><i>•</i><span>cursor overlay</span><i>•</i><span>60 fps</span><i>•</i><span>data-channel</span><i>•</i><span>ICE restart</span><i>•</i>
           </div>
         </div>
 
@@ -759,8 +765,8 @@
         <div class="preview-bar">
           <span class="dots"><i></i><i></i><i></i></span>
           <span class="url">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            sight.app/join/<b>{previewCode}</b>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Join code <b>{previewCode}</b>
           </span>
           <span class="live-mini"><span class="live-dot"></span>LIVE</span>
         </div>
@@ -868,7 +874,7 @@
     will-change: transform;
     contain: strict;
   }
-  .glow.on { opacity: 1; }
+  :global(.glow.on) { opacity: 1; }
 
   .hero {
     position: relative;
@@ -983,13 +989,13 @@
     transition: transform 0.18s ease-out, box-shadow 0.18s ease-out;
     will-change: transform;
   }
-  .card.tilting { transition: transform 0.06s linear; box-shadow: 8px 10px 0 var(--border); }
+  :global(.card.tilting) { transition: transform 0.06s linear; box-shadow: 8px 10px 0 var(--border); }
   .card-glare {
     position: absolute; inset: 0;
     background: radial-gradient(circle at var(--gx) var(--gy), rgba(255,255,255,0.55) 0%, transparent 55%);
     opacity: 0; pointer-events: none; transition: opacity 0.2s;
   }
-  .card.tilting .card-glare { opacity: 1; }
+  :global(.card.tilting .card-glare) { opacity: 1; }
   .card::before {
     content: ''; display: block; height: 10px; margin: 0 -34px;
     background: linear-gradient(90deg, var(--accent), var(--teal), var(--mustard), var(--accent));
@@ -1086,7 +1092,7 @@
   }
   .input-wrap.focused .input-glow { opacity: 0.35; }
   .typing-caret { position: absolute; right: 14px; top: 50%; width: 2px; height: 16px; background: var(--accent); transform: translateY(-50%); animation: blink 1s steps(1) infinite; }
-  .code-input.shake { animation: shake 0.4s ease; }
+  :global(.code-input.shake) { animation: shake 0.4s ease; }
   @keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
   .error { color: var(--danger); font-family: var(--font-mono); font-size: 12px; font-weight: 700; margin-top: 10px; text-align: center; }
   .hint { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); text-align: center; margin-top: 10px; }
@@ -1253,7 +1259,7 @@
     /* fewer animated layers on narrow windows */
     .blob-b, .blob-c { display: none; }
   }
-  [data-theme='dark'] .blob {
+  :global([data-theme='dark'] .blob) {
     opacity: 0.6;
   }
   @media (prefers-reduced-motion: reduce) {

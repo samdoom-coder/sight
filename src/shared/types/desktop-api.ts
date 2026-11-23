@@ -16,6 +16,7 @@ export interface DesktopApi {
   system: {
     platform: () => Promise<string>
     openExternal: (url: string) => void
+    displayBounds: (displayId: string) => Promise<DisplayBounds | null>
   }
   settings: {
     get: () => Promise<AppSettings>
@@ -40,4 +41,12 @@ export interface UpdateStatusMsg {
   version?: string
   percent?: number
   message?: string
+}
+
+export interface DisplayBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+  scaleFactor: number
 }

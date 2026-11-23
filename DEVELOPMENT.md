@@ -4,7 +4,7 @@ Guide for running, building, testing, and packaging Sight locally.
 
 ## Prerequisites
 
-- Node.js ≥ 20
+- Node.js ≥ 22.12
 - npm ≥ 9
 - A desktop environment (Linux needs X11/Wayland libs; see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md))
 
@@ -35,8 +35,8 @@ npm run dev        # terminal A: Vite dev server (port 5173)
 npm run dev:main   # terminal B: builds main and launches Electron
 ```
 
-`dev:main` builds the main/preload/server bundles and launches Electron pointed at the Vite
-dev server URL. If you change the main process, rebuild with `npm run build:main`.
+`dev:main` builds the main/preload bundles and launches Electron pointed at the Vite dev
+server URL. If you change the main process, rebuild with `npm run build:main`.
 
 > Alternative one-shot flow without the Vite server:
 
@@ -92,10 +92,15 @@ npm run typecheck
 
 Checks `src/main`, `src/renderer`, and `server` TypeScript projects.
 
-## Linting
+## Linting and Svelte checks
 
-No ESLint is wired in by default. Run typecheck and the tests as the safety net. If you add
-ESLint, prefer flat config and run it as part of `npm test`.
+```bash
+npm run typecheck   # TS for main, renderer, server
+npm run check       # svelte-check: templates, a11y warnings, component types
+```
+
+No ESLint is wired in by default. `npm run check` catches template-level issues that
+`tsc` cannot see. CI runs both commands.
 
 ## Packaging
 
@@ -123,10 +128,11 @@ electron-builder config lives in `package.json` (`build` field). Build resources
 
 ### Updates
 
-Sight currently ships without a bundled auto-updater. The architecture keeps the version in
-`package.json` only, so integrating `electron-updater` later is straightforward — add it as a
-dependency, configure the publish backend in the `build` block, and call `autoUpdater`
-from the main process. See [DEPLOYMENT.md](./DEPLOYMENT.md) for hosting considerations.
+`electron-updater` is wired into the main process and publishes through GitHub Releases.
+Auto-check runs after startup in packaged builds; downloads wait for user confirmation.
+macOS auto-updates require a signed and notarized app, and Windows installers should be
+Authenticode-signed to avoid SmartScreen warnings. Unsigned development builds can still be
+installed manually but will not update reliably on macOS.
 
 ## Common dev tasks
 

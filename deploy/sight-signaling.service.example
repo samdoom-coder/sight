@@ -2,7 +2,7 @@
 # Place in /etc/systemd/system/sight-signaling.service then:
 #   systemctl daemon-reload && systemctl enable --now sight-signaling
 #
-# Clients connect with SIGNALING_URL=wss://yourdomain/ws when run behind nginx.
+# Clients connect with VITE_SIGNALING_URL=wss://yourdomain/ws when run behind nginx.
 
 [Unit]
 Description=Sight P2P signaling server
@@ -22,8 +22,12 @@ Environment=PORT=8787
 # NEVER use * in production — set your real app origins.
 Environment=ALLOWED_ORIGINS=app://sight
 Environment=SESSION_TTL_MS=1800000
-Environment=MAX_PARTICIPANTS=8
+Environment=MAX_PARTICIPANTS=2
 Environment=MAX_SESSIONS_PER_IP=10
+Environment=MAX_CONNECTIONS_PER_IP=20
+# This unit binds to loopback and expects nginx/Caddy in front, so trust the
+# proxy's X-Real-IP header. Remove this if clients connect directly.
+Environment=TRUST_PROXY=1
 
 [Install]
 WantedBy=multi-user.target

@@ -41,7 +41,7 @@
 
   function clearData(): void {
     window.desktop?.settings.clearSessionData()
-    showToast('Local session data cleared.', 'success')
+    showToast('App settings reset.', 'success')
     setTimeout(() => loadSettings(), 300)
   }
 
@@ -133,7 +133,7 @@
             </select>
           </label>
           <label class="row">
-            <span>Session timeout (seconds)</span>
+            <span>Session idle timeout (seconds)</span>
             <input
               type="number"
               min="60"
@@ -143,10 +143,10 @@
               onchange={updateDraft}
             />
           </label>
-          <label class="row">
+          <div class="row">
             <span>Default screen</span>
             <span class="hint">(Chosen when you start a session)</span>
-          </label>
+          </div>
         </section>
       {:else if activeTab === 'network'}
         <section class="group">
@@ -201,8 +201,8 @@
             <span class="hint">{window.desktop?.platform === 'darwin' ? 'macOS: Screen Recording required' : window.desktop?.platform === 'linux' ? 'Linux: depends on desktop environment' : 'Windows: no extra permission needed'}</span>
           </div>
           <div class="row">
-            <span>Clear local session data</span>
-            <button class="danger-btn" onclick={clearData}>Clear</button>
+            <span>Reset app settings</span>
+            <button class="danger-btn" onclick={clearData}>Reset</button>
           </div>
         </section>
       {:else if activeTab === 'updates'}

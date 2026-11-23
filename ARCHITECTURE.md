@@ -155,20 +155,28 @@ remote cursors on the receiving side for smooth motion with minimal traffic.
 `ConnectionMonitor` polls `RTCPeerConnection.getStats()` every 2 seconds and derives:
 
 - **RTT** from `candidate-pair.currentRoundTripTime`
-- **Bitrate** from outbound RTP byte deltas
-- **Frame rate** from outbound RTP `framesPerSecond`
+- **Bitrate** from outbound RTP on the host and inbound RTP on the viewer
+- **Frame rate** from outbound or inbound RTP `framesPerSecond`
 - **Packet loss** from inbound RTP counters
+- **Codec** by resolving the RTP report's `codecId` to a video codec entry
 - **Connection type** from local/remote candidate types (`host`/`srflx`/`relay`)
 
 Metrics are exposed to the UI for the quality indicator and the diagnostics panel.
 
 ## 6. Reconnection
 
-- On `iceConnectionState === disconnected|failed`, the app transitions to `reconnecting`,
-  shows the state, and calls `restartIce()` with backoff (up to 4 attempts).
+- On `iceConnectionState === disconnected`, the app waits 2.5s before treating it as a
+  failure (transient states are common on Wi-Fi). `failed` is handled immediately.
+- The **host** is the offerer: it calls `restartIce()`, creates a new offer, and sends it
+  through signaling. The guest waits for that recovery offer (up to 20s) and answers it.
+  Calling `restartIce()` without a new offer/answer exchange does not renegotiate.
 - Signaling disconnects automatically reconnect with exponential backoff (max 15s).
+  Reconnect currently establishes a fresh session; session resumption across a signaling
+  socket drop is a planned follow-up.
 - If the host closes the app or the session ends, guests receive `peer-left` /
   `session-event { kind: 'ended' }` and the UI leaves the connected state.
+- Ending a session stops the local capture tracks and audio capture as well as closing the
+  peer connection and signaling socket.
 
 ## 7. Screen capture
 
@@ -178,6 +186,10 @@ Metrics are exposed to the UI for the quality indicator and the diagnostics pane
   denied state is surfaced with actionable instructions.
 - The renderer captures the chosen source via `getUserMedia` with the Electron
   `chromeMediaSource: 'desktop'` constraint.
+- System audio is captured separately with `getDisplayMedia({ audio: true })` because the
+  initial video capture is muted. Electron's `setDisplayMediaRequestHandler` supplies the
+  selected screen and, on Windows, `loopback` system audio. macOS/Linux audio support is
+  best-effort; Linux system audio is not supported.
 
 ## 8. Multi-participant design
 
@@ -198,9 +210,11 @@ interface Participant {
 }
 ```
 
-The signaling server supports up to `MAX_PARTICIPANTS` peers and relays SDP/ICE between any
-pair, so group collaboration can be added to the UI without rewriting the networking layer.
-The current UI limits the active flow to a single host/guest pair.
+The server can model up to `MAX_PARTICIPANTS` peers, but the default is **2** (host +
+guest) and the current UI/peer-connection manager is intentionally 1:1. A second guest gets
+`session-full` instead of joining and waiting forever. Group viewing needs a per-peer
+`RTCPeerConnection` map on the host (or an SFU) and a UI for multiple streams; that work is
+not included yet.
 
 ## 9. Directory reference
 

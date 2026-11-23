@@ -42,7 +42,12 @@ function isValidHello(payload: unknown): boolean {
 
 function isValidCreateSession(payload: unknown): boolean {
   if (!isRecord(payload)) return false
-  return typeof payload.displayName === 'string' && payload.displayName.length <= 64
+  if (typeof payload.displayName !== 'string' || payload.displayName.length > 64) return false
+  if (payload.ttlMs !== undefined) {
+    if (typeof payload.ttlMs !== 'number' || !Number.isFinite(payload.ttlMs)) return false
+    if (payload.ttlMs < 60_000 || payload.ttlMs > 86_400_000) return false
+  }
+  return true
 }
 
 function isValidJoinSession(payload: unknown): boolean {

@@ -13,7 +13,6 @@ import { CursorService } from './CursorService'
 import { ConnectionMonitor } from './ConnectionMonitor'
 import { AudioService } from './AudioService'
 import { participantColor, displayNameToColor } from '@shared/lib/color'
-import { generateSessionCode } from '@shared/lib/session-code'
 
 export interface SessionInit {
   signalingUrl: string
@@ -23,6 +22,7 @@ export interface SessionInit {
   role: 'host' | 'guest'
   localStream: MediaStream | null
   sourceKind: 'screen' | 'window' | null
+  sessionTtlMs?: number
   code?: string
 }
 
@@ -40,19 +40,21 @@ export class SessionService {
   private cursorService: CursorService | null = null
   private monitor: ConnectionMonitor | null = null
   private localStream: MediaStream | null = null
-  private localAudioTrack: MediaStreamTrack | null = null
   private participantId: string | null = null
   private hostId: string | null = null
-  private hostName = ''
   private sessionCode = ''
   private sessionId: string | null = null
   private role: 'host' | 'guest'
   private iceServers: RTCIceServer[]
-  private reconnecting = false
   private reconnectAttempts = 0
   private ended = false
+  private lastPhase: ConnectionPhase = 'idle'
   private audio: AudioService
   private remotePeerId: string | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private disconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private guestRecoveryTimer: ReturnType<typeof setTimeout> | null = null
+  private cursorBounds: { x: number; y: number; width: number; height: number } | null = null
 
   readonly phase = writable<ConnectionPhase>('idle')
   readonly signalingStatus = writable<SignalingStatus>('idle')
@@ -63,7 +65,7 @@ export class SessionService {
   readonly sessionIdStore = writable<string>('')
   readonly errorStore = writable<{ code: string; message: string } | null>(null)
   readonly statusMessage = writable<string>('')
-  readonly audioMuted = writable<boolean>(false)
+  readonly audioMuted = writable<boolean>(true)
   readonly cursorsVisible = writable<boolean>(true)
   readonly remoteStreamStore = writable<MediaStream | null>(null)
 
@@ -94,12 +96,26 @@ export class SessionService {
     return this.role
   }
 
+  isActive(): boolean {
+    return !this.ended
+  }
+
   getSignalingStatus(): SignalingStatus {
     return this.signalingStatusValue
   }
 
   getPeerConnection(): RTCPeerConnection | null {
     return this.webrtc?.peerConnection ?? null
+  }
+
+  /** Local capture stream (used by the host's own preview). */
+  getLocalStream(): MediaStream | null {
+    return this.localStream
+  }
+
+  /** Bounds of the display being shared, used to normalize host cursor coordinates. */
+  setCursorBounds(bounds: { x: number; y: number; width: number; height: number } | null): void {
+    this.cursorBounds = bounds
   }
 
   getParticipantId(): string | null {
@@ -111,9 +127,16 @@ export class SessionService {
   }
 
   start(): void {
-    this.phase.set('connecting')
+    this.setPhase('connecting')
     this.callbacks.onStatusMessage('Connecting to signaling service...')
     this.signaling.connect()
+  }
+
+  private setPhase(next: ConnectionPhase): void {
+    if (this.lastPhase === next) return
+    this.lastPhase = next
+    this.phase.set(next)
+    this.callbacks.onPhaseChange(next)
   }
 
   private onConnectedToSignaling(): void {
@@ -132,7 +155,11 @@ export class SessionService {
         if (this.role === 'host') {
           this.signaling.send({
             type: 'create-session',
-            payload: { displayName: this.init.displayName, sourceKind: this.init.sourceKind }
+            payload: {
+              displayName: this.init.displayName,
+              sourceKind: this.init.sourceKind,
+              ttlMs: this.init.sessionTtlMs
+            }
           })
         } else {
           this.signaling.send({
@@ -151,7 +178,7 @@ export class SessionService {
         this.hostId = payload.peerId
         this.addSelfParticipant()
         this.callbacks.onStatusMessage('Session ready. Waiting for someone to join...')
-        this.phase.set('connecting')
+        this.setPhase('connecting')
         break
       }
       case 'session-joined': {
@@ -159,14 +186,13 @@ export class SessionService {
         this.sessionId = payload.sessionId
         this.hostId = payload.hostId
         this.remotePeerId = payload.hostId
-        this.hostName = payload.hostName
         this.sessionIdStore.set(payload.sessionId)
         this.participantId = payload.peerId
         this.signaling.setPeerId(payload.peerId)
         this.addParticipant(payload.hostId, payload.hostName, true)
         this.addSelfParticipant()
         this.callbacks.onStatusMessage('Session joined. Waiting for the host...')
-        this.phase.set('connecting')
+        this.setPhase('connecting')
         break
       }
       case 'session-not-found': {
@@ -198,6 +224,10 @@ export class SessionService {
         this.removeParticipant(payload.peerId)
         if (this.role === 'guest' && payload.peerId === this.hostId) {
           this.handleHostLeft()
+        } else if (this.role === 'host' && this.remotePeerId === payload.peerId) {
+          // The guest left; keep the host session (and capture) alive for the
+          // next guest, but tear down the peer connection.
+          this.teardownPeer()
         }
         break
       }
@@ -283,7 +313,7 @@ export class SessionService {
     if (this.webrtc) return
     this.remotePeerId = targetPeerId
     await this.initWebRTCCommon()
-    this.phase.set('negotiating')
+    this.setPhase('negotiating')
     this.callbacks.onStatusMessage('Negotiating with the guest...')
     const offer = await this.webrtc!.createOffer()
     this.signaling.sendTo(targetPeerId, { type: 'offer', payload: { sdp: offer }, sessionId: this.sessionId ?? undefined })
@@ -304,7 +334,7 @@ export class SessionService {
         }
       },
       onDataChannelOpen: () => {
-        this.phase.set('connected')
+        this.setPhase('connected')
         this.callbacks.onStatusMessage('Connected.')
         this.startCursorTransport()
         this.sendHello()
@@ -330,14 +360,24 @@ export class SessionService {
     }
 
     await this.webrtc.initialize()
+
+    // Audio may have been enabled before this peer connection was created
+    // (e.g. after a guest leaves and a new guest joins). Re-attach it.
+    const audioTrack = this.audio.getAudioTrack()
+    if (audioTrack) {
+      this.webrtc.addAudioTrack(audioTrack)
+      this.webrtc.setAudioEnabled(!get(this.audioMuted))
+    }
+
     this.startStatsLoop()
   }
 
   private async handleIncomingOffer(sdp: RTCSessionDescriptionInit): Promise<void> {
+    this.clearGuestRecoveryTimer()
     if (!this.webrtc) {
       await this.initWebRTCCommon()
     }
-    this.phase.set('negotiating')
+    this.setPhase('negotiating')
     this.callbacks.onStatusMessage('Negotiating with the host...')
     const answer = await this.webrtc!.handleOffer(sdp)
     if (this.hostId) {
@@ -354,38 +394,134 @@ export class SessionService {
     console.debug('[webrtc] ice state:', state)
     switch (state) {
       case 'checking':
-        this.phase.set('establishing')
+        this.setPhase('establishing')
         this.callbacks.onStatusMessage('Establishing a secure connection...')
         break
       case 'connected':
       case 'completed':
-        this.phase.set('connected')
+        this.clearRecoveryTimers()
         this.reconnectAttempts = 0
-        this.reconnecting = false
+        this.setPhase('connected')
         this.callbacks.onStatusMessage('Connected.')
         break
       case 'disconnected':
+        this.scheduleDisconnectCheck()
+        break
       case 'failed':
         this.handleConnectionFailure()
         break
     }
   }
 
+  private scheduleDisconnectCheck(): void {
+    if (this.ended || this.disconnectTimer) return
+    this.disconnectTimer = setTimeout(() => {
+      this.disconnectTimer = null
+      this.handleConnectionFailure()
+    }, 2500)
+  }
+
   private handleConnectionFailure(): void {
     if (this.ended) return
-    if (this.reconnectAttempts < 4) {
-      this.reconnecting = true
-      this.reconnectAttempts += 1
-      this.phase.set('reconnecting')
-      this.callbacks.onStatusMessage(
-        this.reconnectAttempts === 1
-          ? 'The connection was interrupted. Reconnecting...'
-          : `Reconnecting... attempt ${this.reconnectAttempts} of 4`
-      )
-      setTimeout(() => this.webrtc?.restartIce(), 1200 * this.reconnectAttempts)
-    } else {
-      this.phase.set('disconnected')
+
+    if (this.role === 'guest') {
+      // Guests cannot renegotiate. Wait for the host to send a recovery offer.
+      if (this.guestRecoveryTimer) return
+      this.setPhase('reconnecting')
+      this.callbacks.onStatusMessage('The connection was interrupted. Waiting for the host to recover it...')
+      this.guestRecoveryTimer = setTimeout(() => {
+        this.guestRecoveryTimer = null
+        if (this.ended) return
+        this.setPhase('disconnected')
+        this.callbacks.onStatusMessage('Connection lost. The host could not re-establish it.')
+      }, 20_000)
+      return
+    }
+
+    if (this.reconnectTimer) return
+    if (this.reconnectAttempts >= 4) {
+      this.setPhase('disconnected')
       this.callbacks.onStatusMessage('Connection lost. We could not re-establish it.')
+      return
+    }
+
+    this.reconnectAttempts += 1
+    this.setPhase('reconnecting')
+    this.callbacks.onStatusMessage(
+      this.reconnectAttempts === 1
+        ? 'The connection was interrupted. Reconnecting...'
+        : `Reconnecting... attempt ${this.reconnectAttempts} of 4`
+    )
+
+    const delay = 1200 * this.reconnectAttempts
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      void this.renegotiateAsHost()
+    }, delay)
+  }
+
+  /**
+   * ICE restart only takes effect after a new offer/answer exchange. Calling
+   * restartIce() by itself does not renegotiate the connection.
+   */
+  private async renegotiateAsHost(): Promise<void> {
+    if (this.ended || this.role !== 'host' || !this.webrtc || !this.remotePeerId) return
+    if (!this.signaling.isConnected) {
+      // The signaling socket is required to deliver the recovery offer.
+      this.handleConnectionFailure()
+      return
+    }
+    try {
+      await this.webrtc.restartIce()
+      const offer = await this.webrtc.createOffer()
+      this.signaling.sendTo(this.remotePeerId, {
+        type: 'offer',
+        payload: { sdp: offer },
+        sessionId: this.sessionId ?? undefined
+      })
+    } catch (err) {
+      console.warn('[session] ICE renegotiation failed', err)
+      this.handleConnectionFailure()
+    }
+  }
+
+  private clearGuestRecoveryTimer(): void {
+    if (this.guestRecoveryTimer) {
+      clearTimeout(this.guestRecoveryTimer)
+      this.guestRecoveryTimer = null
+    }
+  }
+
+  private clearRecoveryTimers(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    if (this.disconnectTimer) {
+      clearTimeout(this.disconnectTimer)
+      this.disconnectTimer = null
+    }
+    this.clearGuestRecoveryTimer()
+  }
+
+  private teardownPeer(): void {
+    this.clearRecoveryTimers()
+    this.reconnectAttempts = 0
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval)
+      this.statsInterval = null
+    }
+    this.cursorService?.stop()
+    this.cursorService = null
+    this.webrtc?.close()
+    this.webrtc = null
+    this.monitor = null
+    this.remotePeerId = null
+    this.remoteStreamStore.set(null)
+    this.metrics.set(null)
+    if (this.role === 'host' && !this.ended) {
+      this.setPhase('connecting')
+      this.callbacks.onStatusMessage('Waiting for someone to join...')
     }
   }
 
@@ -399,16 +535,22 @@ export class SessionService {
     if (!this.webrtc) return
     if (this.cursorService) return
     const isHost = this.role === 'host'
+    // Cursor coordinates are only meaningful for a full-display share. For a
+    // window share we don't know the window bounds, so don't draw a misleading
+    // cursor overlay.
+    const shareCursor = isHost && this.init.sourceKind !== 'window'
     let current = { x: 0, y: 0, width: 1, height: 1 }
     let cleanup: (() => void) | null = null
-    if (isHost) {
+    if (shareCursor) {
       const onMove = (event: MouseEvent): void => {
-        const target = event.currentTarget as HTMLElement
+        const bounds = this.cursorBounds
+        const width = bounds?.width ?? (window.screen.width || 1)
+        const height = bounds?.height ?? (window.screen.height || 1)
         current = {
-          x: event.screenX,
-          y: event.screenY,
-          width: window.screen.availWidth || 1,
-          height: window.screen.availHeight || 1
+          x: Math.min(Math.max(event.screenX - (bounds?.x ?? 0), 0), Math.max(0, width - 1)),
+          y: Math.min(Math.max(event.screenY - (bounds?.y ?? 0), 0), Math.max(0, height - 1)),
+          width: width || 1,
+          height: height || 1
         }
       }
       window.addEventListener('mousemove', onMove, { passive: true })
@@ -416,13 +558,13 @@ export class SessionService {
     }
     this.cursorService = new CursorService(
       this.participantId ?? 'unknown',
-      isHost
+      shareCursor
         ? {
             getPosition: () => current,
             onMove: () => cleanup ?? (() => {})
           }
         : null,
-      isHost
+      shareCursor
         ? {
             sendCursor: (position, participantId) => {
               this.webrtc?.sendDataChannelMessage({
@@ -440,24 +582,28 @@ export class SessionService {
   private handleDataChannel(message: DataChannelMessage): void {
     switch (message.type) {
       case 'cursor': {
-        const payload = message.payload as CursorPosition & { participantId: string }
-        const cursor = this.cursorService?.handleRemoteCursor(payload.participantId, payload)
+        const remoteId = this.role === 'host' ? this.remotePeerId : this.hostId
+        if (!remoteId) break
+        const payload = message.payload as CursorPosition & { participantId?: string }
+        const cursor = this.cursorService?.handleRemoteCursor(remoteId, payload)
         if (cursor) {
           this.participants.update((list) =>
-            list.map((p) => (p.id === payload.participantId ? { ...p, cursor } : p))
+            list.map((p) => (p.id === remoteId ? { ...p, cursor } : p))
           )
         }
         break
       }
       case 'participant-state': {
+        const remoteId = this.role === 'host' ? this.remotePeerId : this.hostId
+        if (!remoteId) break
         const payload = message.payload as {
-          participantId: string
+          participantId?: string
           audioState?: boolean
           connectionState?: string
         }
         this.participants.update((list) =>
           list.map((p) =>
-            p.id === payload.participantId
+            p.id === remoteId
               ? {
                   ...p,
                   audioState: payload.audioState ?? p.audioState,
@@ -469,9 +615,19 @@ export class SessionService {
         break
       }
       case 'session-event': {
-        const payload = message.payload as { kind: string }
+        const payload = message.payload as { kind: string; peerId?: string }
         if (payload.kind === 'ended') {
-          this.handleHostLeft()
+          if (this.role === 'guest') {
+            this.handleHostLeft()
+          } else {
+            // An older/guest client asked to end the whole session. The host
+            // owns the session, so treat it as that guest leaving instead.
+            if (this.remotePeerId) this.removeParticipant(this.remotePeerId)
+            this.teardownPeer()
+          }
+        } else if (payload.kind === 'peer-left' && this.role === 'host') {
+          if (this.remotePeerId) this.removeParticipant(this.remotePeerId)
+          this.teardownPeer()
         }
         break
       }
@@ -483,8 +639,9 @@ export class SessionService {
         const payload = message.payload as { timestamp?: number }
         if (payload.timestamp) {
           const rtt = Date.now() - payload.timestamp
+          const remoteId = this.role === 'host' ? this.remotePeerId : this.hostId
           this.participants.update((list) =>
-            list.map((p) => (p.id === (this.role === 'host' ? this.hostId : this.participantId) ? { ...p, rtt } : p))
+            list.map((p) => (p.id === remoteId ? { ...p, rtt } : p))
           )
         }
         break
@@ -501,56 +658,77 @@ export class SessionService {
   }
 
   private startStatsLoop(): void {
-    const tick = async () => {
-      if (this.ended || !this.webrtc) return
-      const stats = await this.webrtc.getStats()
-      await this.monitor?.update(stats)
+    const tick = async (): Promise<void> => {
+      const client = this.webrtc
+      if (this.ended || !client) return
+      try {
+        const stats = await client.getStats()
+        await this.monitor?.update(stats)
+      } catch {
+        // The peer connection can close between the ended check and getStats().
+      }
     }
-    tick()
+    void tick()
     this.statsInterval = setInterval(tick, 2000)
   }
 
   private statsInterval: ReturnType<typeof setInterval> | null = null
 
-  async toggleAudio(): Promise<void> {
-    const currentMuted = get(this.audioMuted)
-    if (!currentMuted) {
-      // turning audio off
-      this.audioMuted.set(true)
-      this.webrtc?.setAudioEnabled(false)
-      this.webrtc?.sendDataChannelMessage({
-        v: 1,
-        type: 'participant-state',
-        payload: { participantId: this.participantId, audioState: false }
-      })
-      return
-    }
-    // turning audio on
-    if (this.role === 'host') {
-      if (!this.audio.isEnabled) {
-        if (!this.audio.isSupported) {
-          this.callbacks.onError('audio-unsupported', 'System audio sharing is not supported on this platform.')
-          return
-        }
-        await this.audio.enable()
-        const track = this.audio.getAudioTrack()
-        if (track) {
-          this.webrtc?.addAudioTrack(track)
-          this.webrtc?.setAudioEnabled(true)
-        } else {
-          this.callbacks.onError('audio-denied', 'System audio could not be captured.')
-          return
-        }
-      } else {
-        this.webrtc?.setAudioEnabled(true)
-      }
-    }
-    this.audioMuted.set(false)
+  private sendParticipantState(audioState: boolean): void {
     this.webrtc?.sendDataChannelMessage({
       v: 1,
       type: 'participant-state',
-      payload: { participantId: this.participantId, audioState: true }
+      payload: { participantId: this.participantId, audioState }
     })
+  }
+
+  async enableAudio(): Promise<void> {
+    if (this.role !== 'host') {
+      this.callbacks.onError('audio-guest', 'Only the host can share audio.')
+      return
+    }
+    if (!this.audio.isSupported) {
+      this.callbacks.onError('audio-unsupported', 'System audio sharing is not supported on this platform.')
+      return
+    }
+    if (!this.webrtc) {
+      this.callbacks.onError('audio-not-connected', 'Wait for the session to connect before sharing audio.')
+      return
+    }
+    if (!this.audio.isEnabled) {
+      const enabled = await this.audio.enable()
+      if (!enabled) {
+        this.callbacks.onError('audio-denied', 'System audio could not be captured.')
+        return
+      }
+    }
+    const track = this.audio.getAudioTrack()
+    if (!track) {
+      this.callbacks.onError('audio-denied', 'System audio could not be captured.')
+      return
+    }
+    // Re-add on every enable: the peer connection may have been rebuilt after
+    // a guest left and a new one joined.
+    this.webrtc.addAudioTrack(track)
+    this.audio.setEnabled(true)
+    this.webrtc.setAudioEnabled(true)
+    this.audioMuted.set(false)
+    this.sendParticipantState(true)
+  }
+
+  disableAudio(): void {
+    this.audio.setEnabled(false)
+    this.webrtc?.setAudioEnabled(false)
+    this.audioMuted.set(true)
+    this.sendParticipantState(false)
+  }
+
+  async toggleAudio(): Promise<void> {
+    if (get(this.audioMuted)) {
+      await this.enableAudio()
+    } else {
+      this.disableAudio()
+    }
   }
 
   toggleCursors(): void {
@@ -565,24 +743,56 @@ export class SessionService {
 
   endSession(): void {
     this.ended = true
-    this.webrtc?.sendDataChannelMessage({ v: 1, type: 'session-event', payload: { kind: 'ended' } })
+    if (this.role === 'host') {
+      this.webrtc?.sendDataChannelMessage({ v: 1, type: 'session-event', payload: { kind: 'ended' } })
+    } else {
+      this.webrtc?.sendDataChannelMessage({
+        v: 1,
+        type: 'session-event',
+        payload: { kind: 'peer-left', peerId: this.participantId }
+      })
+    }
     this.cleanup()
   }
 
   private cleanup(): void {
     this.ended = true
+    this.clearRecoveryTimers()
     if (this.statsInterval) {
       clearInterval(this.statsInterval)
       this.statsInterval = null
     }
     this.cursorService?.stop()
+    this.cursorService = null
     this.webrtc?.close()
     this.webrtc = null
+    this.monitor = null
     this.signaling.close()
+
+    // Stop the local capture. Closing the RTCPeerConnection does not stop the
+    // source tracks, so without this the OS keeps sharing/recording the screen
+    // after the user ends the session.
+    const stream = this.localStream
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        track.stop()
+      }
+      this.localStream = null
+    }
+    this.audio.stop()
+    if (typeof window !== 'undefined' && window.__sightPendingStream === stream) {
+      window.__sightPendingStream = null
+    }
+
+    this.remoteStreamStore.set(null)
+    this.metrics.set(null)
     this.participants.set([])
     this.sessionCodeStore.set('')
     this.sessionIdStore.set('')
-    this.phase.set('disconnected')
+    this.audioMuted.set(true)
+    this.reconnectAttempts = 0
+    this.remotePeerId = null
+    this.setPhase('disconnected')
   }
 
   private setError(code: string, message: string): void {

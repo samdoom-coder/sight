@@ -3,17 +3,14 @@
   import { navigate } from '../routes/router'
   import { config, settings } from '../services/config'
   import { SessionService } from '../services/SessionService'
-  import { sessionStore, clearActiveSession } from '../stores/session'
+  import { getSessionService, sessionStore, clearActiveSession } from '../stores/session'
   import { showToast } from '../stores/toast'
   import type { ConnectionPhase, ConnectionMetrics } from '@shared/types/models'
-
-  export let sessionId = ''
 
   let phase: ConnectionPhase = 'idle'
   let metrics: ConnectionMetrics | null = null
   let code = ''
   let guestJoined = false
-  let inviteUrl = ''
   let signalingStatus = 'idle'
 
   let displayName = localStorage.getItem('sight-display-name') ?? 'Host'
@@ -23,15 +20,15 @@
     { urls: 'stun:stun1.l.google.com:19302' }
   ]
 
-  onMount(() => {
+  function createHostService(): SessionService | null {
     const stream = window.__sightPendingStream
     if (!stream) {
       showToast('No capture stream found. Please pick a source again.', 'error')
       navigate({ name: 'home' })
-      return
+      return null
     }
 
-    const service = new SessionService(
+    return new SessionService(
       {
         signalingUrl: $config?.signalingUrl ?? 'ws://localhost:8787/ws',
         iceServers: $config?.iceServers ?? defaultIce,
@@ -39,10 +36,19 @@
         displayName,
         role: 'host',
         localStream: stream,
-        sourceKind: null
+        sourceKind:
+          sessionStorage.getItem('sight-source-kind') === 'window'
+            ? 'window'
+            : sessionStorage.getItem('sight-source-kind') === 'screen'
+              ? 'screen'
+              : null,
+        sessionTtlMs: ($settings.session.timeoutSeconds || 1800) * 1000
       },
       {
-        onPhaseChange: (p) => (phase = p),
+        onPhaseChange: (p) => {
+          phase = p
+          sessionStore.update((s) => ({ ...s, phase: p }))
+        },
         onMetrics: (m) => (metrics = m),
         onVideoReady: () => {},
         onError: (code, message) => {
@@ -51,9 +57,26 @@
         onStatusMessage: () => {}
       }
     )
+  }
 
-    sessionStore.set({ service, phase: 'idle', role: 'host' })
-    service.start()
+  onMount(() => {
+    const existing = getSessionService()
+    const reusable = existing !== null && existing.getRole() === 'host' && existing.isActive()
+    const service = reusable ? existing : createHostService()
+    if (!service) return
+
+    if (!reusable) {
+      sessionStore.set({ service, phase: 'idle', role: 'host' })
+      service.start()
+    }
+
+    const displayId = sessionStorage.getItem('sight-display-id')
+    if (displayId && window.desktop) {
+      window.desktop.system
+        .displayBounds(displayId)
+        .then((bounds) => service.setCursorBounds(bounds))
+        .catch(() => {})
+    }
 
     const unsubscribePhase = service.phase.subscribe((p) => {
       phase = p
@@ -63,7 +86,7 @@
         window.desktop?.platform !== 'linux'
       ) {
         sessionStorage.setItem('sight-audio', '0')
-        service.toggleAudio().catch(() => {})
+        service.enableAudio().catch(() => {})
       }
     })
     const unsubscribeSig = service.signalingStatus.subscribe((s) => {
@@ -72,7 +95,6 @@
     const unsubscribeCode = service.sessionCodeStore.subscribe((c) => {
       if (c) {
         code = c
-        inviteUrl = `https://sight.app/join/${c}`
       }
     })
     const unsubscribeParticipants = service.participants.subscribe((list) => {
@@ -100,17 +122,10 @@
     showToast('Session code copied.', 'success')
   }
 
-  function copyInviteLink(): void {
-    if (!inviteUrl) return
-    navigator.clipboard.writeText(inviteUrl)
-    flashCopied('link')
-    showToast('Invite link copied.', 'success')
-  }
-
-  let copied: 'code' | 'link' | null = null
+  let copied: 'code' | null = null
   let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
-  function flashCopied(kind: 'code' | 'link'): void {
+  function flashCopied(kind: 'code'): void {
     copied = kind
     if (copiedTimer) clearTimeout(copiedTimer)
     copiedTimer = setTimeout(() => (copied = null), 1300)
@@ -126,6 +141,11 @@
 
   function endSession(): void {
     clearActiveSession()
+    sessionStorage.removeItem('sight-pending-stream')
+    sessionStorage.removeItem('sight-audio')
+    sessionStorage.removeItem('sight-source-kind')
+    sessionStorage.removeItem('sight-display-id')
+    window.__sightPendingStream = null
     navigate({ name: 'home' })
     showToast('Session ended.', 'info')
   }
@@ -155,7 +175,7 @@
           {/each}
         </span>
       {/key}
-      <span class="copy-hint">Copy it below or send the invite link.</span>
+      <span class="copy-hint">Copy it below and send it to the person joining.</span>
       {#if !guestJoined && code}
         <span class="radar" aria-hidden="true"><i></i><i></i><i></i></span>
       {/if}
@@ -166,20 +186,11 @@
     <div class="copy-row">
       <button class="copy-btn" class:copied={copied === 'code'} onclick={copyCode} disabled={!code}>
         {#if copied === 'code'}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
           Copied!
         {:else}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
           Copy Code
-        {/if}
-      </button>
-      <button class="copy-btn" class:copied={copied === 'link'} onclick={copyInviteLink} disabled={!inviteUrl}>
-        {#if copied === 'link'}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
-          Copied!
-        {:else}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-          Copy Invite Link
         {/if}
       </button>
     </div>

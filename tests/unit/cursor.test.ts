@@ -48,4 +48,13 @@ describe('cursor normalization', () => {
     const next = interpolateCursor(null, target)
     expect(next).toEqual(target)
   })
+
+  it('clamps malformed remote cursor coordinates', () => {
+    const next = interpolateCursor(null, { x: 99, y: -4, timestamp: 1 })
+    expect(next.x).toBe(1)
+    expect(next.y).toBe(0)
+    const nan = interpolateCursor(null, { x: Number.NaN, y: 0.7, timestamp: 2 })
+    expect(nan.x).toBe(0)
+    expect(nan.y).toBeCloseTo(0.7)
+  })
 })

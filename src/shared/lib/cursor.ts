@@ -35,13 +35,15 @@ export interface InterpolatedCursor {
 const SMOOTHING_FACTOR = 0.35
 
 export function interpolateCursor(current: CursorPosition | null, target: CursorPosition): CursorPosition {
+  const tx = Number.isFinite(target.x) ? clamp01(target.x) : 0
+  const ty = Number.isFinite(target.y) ? clamp01(target.y) : 0
   if (!current) {
-    return { ...target }
+    return { ...target, x: tx, y: ty }
   }
   const alpha = SMOOTHING_FACTOR
   return {
-    x: current.x + (target.x - current.x) * alpha,
-    y: current.y + (target.y - current.y) * alpha,
+    x: current.x + (tx - current.x) * alpha,
+    y: current.y + (ty - current.y) * alpha,
     timestamp: target.timestamp
   }
 }

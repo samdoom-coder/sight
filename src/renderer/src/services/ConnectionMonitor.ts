@@ -1,4 +1,4 @@
-import type { ConnectionMetrics, ConnectionType } from '@shared/types/models'
+import type { ConnectionMetrics } from '@shared/types/models'
 
 function candidateTypeFromString(value: string | undefined): string | null {
   if (!value) return null
@@ -6,6 +6,12 @@ function candidateTypeFromString(value: string | undefined): string | null {
   if (value.includes('srflx')) return 'srflx'
   if (value.includes('relay')) return 'relay'
   return value
+}
+
+function codecName(mimeType: string | undefined): string | null {
+  if (!mimeType) return null
+  const parts = mimeType.split('/')
+  return parts[parts.length - 1] ?? null
 }
 
 export class ConnectionMonitor {
@@ -22,8 +28,10 @@ export class ConnectionMonitor {
     videoHeight: null
   }
 
-  private lastBytes = 0
-  private lastTimestamp = 0
+  private lastOutboundBytes = 0
+  private lastOutboundTimestamp = 0
+  private lastInboundBytes = 0
+  private lastInboundTimestamp = 0
 
   constructor(private readonly onUpdate: (metrics: ConnectionMetrics) => void) {}
 
@@ -37,23 +45,25 @@ export class ConnectionMonitor {
     let outboundRtp: RTCStats | null = null
     let inboundRtp: RTCStats | null = null
     let candidatePair: RTCStats | null = null
-    let codec: RTCStats | null = null
+    let fallbackCodec: RTCStats | null = null
 
     stats.forEach((report) => {
       const r = report as unknown as Record<string, unknown>
       switch (report.type) {
         case 'outbound-rtp':
-          if ((r.kind === 'video' || (r.kind as string) === 'video') && !outboundRtp) outboundRtp = report
+          if (r.kind === 'video' && !outboundRtp) outboundRtp = report
           break
         case 'inbound-rtp':
-          if ((r.kind as string) === 'video' && !inboundRtp) inboundRtp = report
+          if (r.kind === 'video' && !inboundRtp) inboundRtp = report
           break
         case 'candidate-pair':
           if ((r.nominated === true || (r.state as string) === 'succeeded') && !candidatePair) candidatePair = report
           break
-        case 'codec':
-          if (!codec) codec = report
+        case 'codec': {
+          const mime = (r.mimeType as string | undefined) ?? ''
+          if (!fallbackCodec && mime.startsWith('video/')) fallbackCodec = report
           break
+        }
       }
     })
 
@@ -71,7 +81,6 @@ export class ConnectionMonitor {
       } else if (cp.totalRoundTripTime && cp.responsesReceived) {
         this.metrics.rtt = Math.round((cp.totalRoundTripTime / cp.responsesReceived) * 1000)
       }
-      this.metrics.packetLoss = null
       const localCandidate = this.findCandidate(stats, cp.localCandidateId)
       const remoteCandidate = this.findCandidate(stats, cp.remoteCandidateId)
       this.metrics.localCandidateType = candidateTypeFromString(localCandidate?.candidateType)
@@ -84,45 +93,68 @@ export class ConnectionMonitor {
             : 'unknown'
     }
 
-    if (outboundRtp) {
-      const r = outboundRtp as unknown as {
-        bytesSent?: number
-        framesPerSecond?: number
-        codecId?: string
+    const outbound = outboundRtp as unknown as {
+      bytesSent?: number
+      framesPerSecond?: number
+      codecId?: string
+    } | null
+    const inbound = inboundRtp as unknown as {
+      bytesReceived?: number
+      packetsLost?: number
+      packetsReceived?: number
+      framesPerSecond?: number
+      frameWidth?: number
+      frameHeight?: number
+      codecId?: string
+    } | null
+
+    if (outbound) {
+      if (outbound.bytesSent !== undefined) {
+        if (this.lastOutboundTimestamp > 0) {
+          const deltaTime = (now - this.lastOutboundTimestamp) / 1000
+          const deltaBytes = outbound.bytesSent - this.lastOutboundBytes
+          if (deltaTime > 0 && deltaBytes >= 0) {
+            this.metrics.bitrate = Math.round((deltaBytes * 8) / deltaTime)
+          }
+        }
+        this.lastOutboundBytes = outbound.bytesSent
+        this.lastOutboundTimestamp = now
       }
-      const deltaTime = (now - this.lastTimestamp) / 1000
-      if (r.bytesSent !== undefined && this.lastBytes !== undefined && deltaTime > 0) {
-        const deltaBytes = r.bytesSent - this.lastBytes
-        this.metrics.bitrate = Math.round((deltaBytes * 8) / deltaTime)
-        if (this.metrics.bitrate < 0) this.metrics.bitrate = null
-      }
-      this.lastBytes = r.bytesSent ?? 0
-      this.lastTimestamp = now
-      if (r.framesPerSecond !== undefined) {
-        this.metrics.frameRate = Math.round(r.framesPerSecond)
+      if (outbound.framesPerSecond !== undefined) {
+        this.metrics.frameRate = Math.round(outbound.framesPerSecond)
       }
     }
 
-    if (inboundRtp) {
-      const r = inboundRtp as unknown as {
-        bytesReceived?: number
-        packetsLost?: number
-        packetsReceived?: number
-        codecId?: string
+    if (inbound) {
+      if (inbound.bytesReceived !== undefined) {
+        if (this.lastInboundTimestamp > 0) {
+          const deltaTime = (now - this.lastInboundTimestamp) / 1000
+          const deltaBytes = inbound.bytesReceived - this.lastInboundBytes
+          if (deltaTime > 0 && deltaBytes >= 0) {
+            // On a viewer there is no outbound video, so the inbound bitrate is
+            // the number the user actually cares about.
+            this.metrics.bitrate = Math.round((deltaBytes * 8) / deltaTime)
+          }
+        }
+        this.lastInboundBytes = inbound.bytesReceived
+        this.lastInboundTimestamp = now
       }
-      if (r.packetsLost !== undefined && r.packetsReceived !== undefined) {
-        const total = r.packetsLost + r.packetsReceived
-        this.metrics.packetLoss = total > 0 ? Math.round((r.packetsLost / total) * 1000) / 10 : 0
+      if (outbound?.framesPerSecond === undefined && inbound.framesPerSecond !== undefined) {
+        this.metrics.frameRate = Math.round(inbound.framesPerSecond)
+      }
+      if (inbound.packetsLost !== undefined && inbound.packetsReceived !== undefined) {
+        const total = inbound.packetsLost + inbound.packetsReceived
+        this.metrics.packetLoss = total > 0 ? Math.round((inbound.packetsLost / total) * 1000) / 10 : 0
+      }
+      if (inbound.frameWidth && inbound.frameHeight) {
+        this.metrics.videoWidth = inbound.frameWidth
+        this.metrics.videoHeight = inbound.frameHeight
       }
     }
 
-    if (codec) {
-      const c = codec as unknown as { mimeType?: string }
-      if (c.mimeType) {
-        const parts = c.mimeType.split('/')
-        this.metrics.codec = parts[parts.length - 1] ?? null
-      }
-    }
+    const codecId = outbound?.codecId ?? inbound?.codecId
+    const codecReport = codecId ? stats.get(codecId) : fallbackCodec
+    this.metrics.codec = codecName((codecReport as unknown as { mimeType?: string } | null)?.mimeType)
 
     this.onUpdate(this.current)
   }
@@ -147,7 +179,9 @@ export class ConnectionMonitor {
       videoWidth: null,
       videoHeight: null
     }
-    this.lastBytes = 0
-    this.lastTimestamp = 0
+    this.lastOutboundBytes = 0
+    this.lastOutboundTimestamp = 0
+    this.lastInboundBytes = 0
+    this.lastInboundTimestamp = 0
   }
 }

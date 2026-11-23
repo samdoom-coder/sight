@@ -73,8 +73,21 @@ export function handleConnection(
     }
 
     const msg = validation.message
+
+    // Activity keeps an otherwise-idle session alive. The app's signaling
+    // heartbeat sends a ping every 20s, so an active call will not expire at
+    // the initial TTL boundary.
+    if (state.sessionId) {
+      const activeSession = registry.getById(state.sessionId)
+      if (activeSession) registry.touch(activeSession)
+    }
+
     switch (msg.type) {
       case 'hello': {
+        if (state.kind) {
+          send(ws, { type: 'error', payload: { code: 'already-greeted', message: 'Hello was already sent.' } })
+          return
+        }
         const p = msg.payload as { kind: 'host' | 'guest'; displayName: string }
         state.kind = p.kind
         state.displayName = p.displayName
@@ -86,6 +99,10 @@ export function handleConnection(
           send(ws, { type: 'error', payload: { code: 'forbidden', message: 'Only hosts can create sessions.' } })
           return
         }
+        if (state.sessionId) {
+          send(ws, { type: 'error', payload: { code: 'already-in-session', message: 'This connection already has a session.' } })
+          return
+        }
         if (limits?.ip && limits.canCreateSession && !limits.canCreateSession(limits.ip)) {
           send(ws, {
             type: 'error',
@@ -93,7 +110,7 @@ export function handleConnection(
           })
           return
         }
-        const p = msg.payload as { displayName: string }
+        const p = msg.payload as { displayName: string; ttlMs?: number }
         const hostPeer: SessionPeer = {
           id: peerId,
           displayName: p.displayName,
@@ -101,8 +118,9 @@ export function handleConnection(
           ws,
           joinedAt: Date.now()
         }
-        const { session, code } = registry.createSession(hostPeer, limits?.ip)
+        const { session, code } = registry.createSession(hostPeer, limits?.ip, p.ttlMs)
         state.sessionId = session.id
+        registry.touch(session)
         if (limits?.ip && limits.recordSessionCreated) {
           limits.recordSessionCreated(limits.ip, session.id)
         }
@@ -110,12 +128,16 @@ export function handleConnection(
           type: 'session-created',
           payload: { sessionId: session.id, code, peerId, expiresAt: session.expiresAt }
         })
-        log(`Session created ${code} (${session.id})`)
+        log(`Session created (${session.id})`)
         break
       }
       case 'join-session': {
         if (state.kind !== 'guest') {
           send(ws, { type: 'error', payload: { code: 'forbidden', message: 'Only guests can join sessions.' } })
+          return
+        }
+        if (state.sessionId) {
+          send(ws, { type: 'error', payload: { code: 'already-in-session', message: 'This connection already joined a session.' } })
           return
         }
         const p = msg.payload as { code: string; displayName: string }
@@ -140,6 +162,7 @@ export function handleConnection(
           joinedAt: Date.now()
         }
         registry.addPeer(session, guestPeer)
+        registry.touch(session)
         state.sessionId = session.id
         const hostPeer = session.peers.get(session.hostId)
         send(ws, {
@@ -154,7 +177,7 @@ export function handleConnection(
             send(ws, { type: 'peer-joined', payload: { peerId: existing.id, displayName: existing.displayName }, sessionId: session.id })
           }
         }
-        log(`Guest joined ${p.code} (${p.displayName})`)
+        log(`Guest joined ${session.id} (${p.displayName})`)
         break
       }
       case 'offer':
@@ -217,14 +240,14 @@ export function handleConnection(
           if (creatorIp && limits?.recordSessionEnded) {
             limits.recordSessionEnded(creatorIp, session.id)
           }
-          log(`Session ended ${session.code}`)
+          log(`Session ended (${session.id})`)
         } else {
           for (const peer of registry.listPeers(session)) {
             if (peer.id !== peerId) {
               sendToPeer(session, peer.id, { type: 'peer-left', payload: { peerId }, sessionId: session.id })
             }
           }
-          log(`Peer left ${session.code}`)
+          log(`Peer left (${session.id})`)
         }
       }
     }

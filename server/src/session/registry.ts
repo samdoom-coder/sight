@@ -15,6 +15,7 @@ export interface Session {
   hostId: string
   createdAt: number
   expiresAt: number
+  ttlMs: number
   peers: Map<string, SessionPeer>
   creatorIp?: string
 }
@@ -35,25 +36,35 @@ export class SessionRegistry {
     return total
   }
 
-  createSession(hostPeer: SessionPeer, creatorIp?: string): { session: Session; code: string } {
+  createSession(hostPeer: SessionPeer, creatorIp?: string, ttlMs = SESSION_TTL_MS): { session: Session; code: string } {
     let code = generateSessionCode()
     let guard = 0
-    while (this.byCode.has(code) && guard < 10) {
+    while (this.byCode.has(code) && guard < 100) {
       code = generateSessionCode()
       guard++
     }
+    const now = Date.now()
+    const safeTtl = Number.isFinite(ttlMs)
+      ? Math.min(Math.max(ttlMs, 60_000), 86_400_000)
+      : SESSION_TTL_MS
     const session: Session = {
       id: generateSessionId(),
       code,
       hostId: hostPeer.id,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + SESSION_TTL_MS,
+      createdAt: now,
+      expiresAt: now + safeTtl,
+      ttlMs: safeTtl,
       peers: new Map([[hostPeer.id, hostPeer]]),
       creatorIp
     }
     this.sessions.set(session.id, session)
     this.byCode.set(code, session.id)
     return { session, code }
+  }
+
+  /** Sliding expiry: any valid signaling traffic keeps the session alive. */
+  touch(session: Session, now = Date.now()): void {
+    session.expiresAt = now + session.ttlMs
   }
 
   getByCode(code: string): Session | undefined {

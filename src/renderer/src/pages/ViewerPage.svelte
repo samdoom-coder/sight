@@ -1,22 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { navigate } from '../routes/router'
-  import { sessionStore, clearActiveSession } from '../stores/session'
+  import { getSessionService, clearActiveSession } from '../stores/session'
   import { showToast } from '../stores/toast'
-  import type { ConnectionMetrics, Participant } from '@shared/types/models'
-  import { denormalizeCoordinates } from '@shared/lib/cursor'
+  import type { ConnectionMetrics, ConnectionPhase, Participant } from '@shared/types/models'
 
   let videoEl: HTMLVideoElement
   let containerEl: HTMLDivElement
   let sparkEl: HTMLCanvasElement
-  let phase = 'connecting'
+  let service: ReturnType<typeof getSessionService> = null
+  let isHost = false
+  let phase: ConnectionPhase = 'connecting'
+  let signalingStatus = 'idle'
   let metrics: ConnectionMetrics | null = null
   let participants: Participant[] = []
   let cursorsVisible = true
+  let audioMuted = true
   let fitMode: 'fit' | 'actual' = 'fit'
   let fullscreen = false
   let showDiagnostics = false
-  let remoteStream: MediaStream | null = null
   let videoDimensions = { width: 0, height: 0 }
 
   // RTT ring buffer — plain (non-reactive) so pushes never re-render.
@@ -33,7 +35,7 @@
     if (rttHistory.length < 2) return
     const max = Math.max(120, ...rttHistory)
     ctx.lineWidth = 1.5
-    ctx.strokeStyle = qualityColor(metrics) === 'var(--text-faint)' ? '#9a9ec0' : String(qualityColor(metrics))
+    ctx.strokeStyle = qualityHex(metrics)
     ctx.beginPath()
     rttHistory.forEach((v, i) => {
       const x = (i / (59)) * w
@@ -75,8 +77,15 @@
     }
   }
 
-  onMount(async () => {
-    const service = getService()
+  onMount(() => {
+    const activeService = getSessionService()
+    if (!activeService) {
+      navigate({ name: 'home' })
+      return
+    }
+    service = activeService
+    isHost = activeService.getRole() === 'host'
+
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     let sparkRaf = 0
     let lastSpark = 0
@@ -94,63 +103,63 @@
     }
     if (!reduced) sparkRaf = requestAnimationFrame(sparkLoop)
 
-    const unsubPhase = sessionStore.subscribe((s) => {
-      phase = s.phase
+    // The service is the source of truth for phase. sessionStore.phase is only
+    // a snapshot from the page that created the session and goes stale.
+    const unsubPhase = activeService.phase.subscribe((p) => {
+      phase = p
     })
-    const unsubMetrics = service?.metrics.subscribe((m) => {
+    const unsubSignaling = activeService.signalingStatus.subscribe((s) => {
+      signalingStatus = s
+    })
+    const unsubMetrics = activeService.metrics.subscribe((m) => {
       metrics = m
       if (m?.rtt != null) {
         rttHistory.push(m.rtt)
         if (rttHistory.length > 60) rttHistory.shift()
       }
     })
-    const unsubParticipants = service?.participants.subscribe((list) => {
+    const unsubParticipants = activeService.participants.subscribe((list) => {
       participants = list
     })
-    const unsubCursors = service?.cursorsVisible.subscribe((v) => {
+    const unsubCursors = activeService.cursorsVisible.subscribe((v) => {
       cursorsVisible = v
     })
-    const unsubStream = service?.remoteStreamStore.subscribe((stream) => {
-      remoteStream = stream
-      if (stream && videoEl) {
-        videoEl.srcObject = stream
-        videoEl.play().catch(() => {})
-      }
+    const unsubAudio = activeService.audioMuted.subscribe((v) => {
+      audioMuted = v
+    })
+    const unsubStream = activeService.remoteStreamStore.subscribe((stream) => {
+      const playback = stream ?? (activeService.getRole() === 'host' ? activeService.getLocalStream() : null)
+      if (!videoEl) return
+      videoEl.srcObject = playback
+      videoEl.muted = playback !== null && playback === activeService.getLocalStream()
+      if (playback) videoEl.play().catch(() => {})
     })
 
+    function onFullscreenChange(): void {
+      fullscreen = !!document.fullscreenElement
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
     window.addEventListener('keydown', onKeydown)
 
     return () => {
       cancelAnimationFrame(sparkRaf)
       document.removeEventListener('visibilitychange', onVis)
-      unsubPhase()
-      unsubMetrics?.()
-      unsubParticipants?.()
-      unsubCursors?.()
-      unsubStream?.()
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
       window.removeEventListener('keydown', onKeydown)
+      unsubPhase()
+      unsubSignaling()
+      unsubMetrics()
+      unsubParticipants()
+      unsubCursors()
+      unsubAudio()
+      unsubStream()
     }
   })
 
-  function getService() {
-    let value: { service: unknown } | null = null
-    sessionStore.subscribe((s) => {
-      value = s
-    })()
-    return value?.service as {
-      metrics: { subscribe: (fn: (m: ConnectionMetrics | null) => void) => () => void }
-      participants: { subscribe: (fn: (p: Participant[]) => void) => () => void }
-      cursorsVisible: { subscribe: (fn: (v: boolean) => void) => () => void }
-      remoteStreamStore: { subscribe: (fn: (s: MediaStream | null) => void) => () => void }
-      toggleAudio: () => Promise<void>
-      toggleCursors: () => void
-      endSession: () => void
-      getRole: () => 'host' | 'guest'
-      audioMuted: { subscribe: (fn: (v: boolean) => void) => () => void }
-    } | null
-  }
-
   function onKeydown(event: KeyboardEvent): void {
+    const target = event.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+    if (event.metaKey || event.ctrlKey || event.altKey) return
     if (event.key === 'f' || event.key === 'F') toggleFullscreen()
     if (event.key === 'Escape' && fullscreen) exitFullscreen()
     if (event.key === 's' || event.key === 'S') takeSnapshot()
@@ -160,9 +169,8 @@
   }
 
   function toggleFullscreen(): void {
-    if (!fullscreen) {
-      containerEl?.requestFullscreen()
-      fullscreen = true
+    if (!document.fullscreenElement) {
+      containerEl?.requestFullscreen().catch(() => {})
     } else {
       exitFullscreen()
     }
@@ -170,9 +178,8 @@
 
   function exitFullscreen(): void {
     if (document.fullscreenElement) {
-      document.exitFullscreen()
+      document.exitFullscreen().catch(() => {})
     }
-    fullscreen = false
   }
 
   function toggleFitMode(): void {
@@ -187,12 +194,6 @@
     clearActiveSession()
     navigate({ name: 'home' })
     showToast('Session ended.', 'info')
-  }
-
-  function muted(): boolean {
-    let m = false
-    getService()?.audioMuted.subscribe((v) => (m = v))()
-    return m
   }
 
   function qualityLabel(m: ConnectionMetrics | null): string {
@@ -211,15 +212,43 @@
     return 'var(--danger)'
   }
 
+  function qualityHex(m: ConnectionMetrics | null): string {
+    if (!m || m.rtt == null) return '#9a9ec0'
+    if (m.rtt < 60) return '#0eb07a'
+    if (m.rtt < 150) return '#84cc16'
+    if (m.rtt < 300) return '#e6b800'
+    return '#e11d48'
+  }
+
   function cursorScreenPosition(p: Participant): { x: number; y: number } | null {
-    if (!p.cursor || videoDimensions.width === 0) return null
-    const display = document.querySelector('.video-frame')
-    if (!display) return null
-    const rect = (display as HTMLElement).getBoundingClientRect()
-    const pos = denormalizeCoordinates(p.cursor, videoDimensions.width, videoDimensions.height)
+    if (!p.cursor || !videoEl || videoDimensions.width === 0 || videoDimensions.height === 0) return null
+    const rect = videoEl.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return null
+
+    // The video uses object-fit: contain, so the rendered frame is usually
+    // smaller than the element. Map normalized cursor coordinates into the
+    // actual letterboxed video rect instead of the whole container.
+    const videoAspect = videoDimensions.width / videoDimensions.height
+    const boxAspect = rect.width / rect.height
+    let displayW: number
+    let displayH: number
+    let offsetX: number
+    let offsetY: number
+    if (videoAspect > boxAspect) {
+      displayW = rect.width
+      displayH = rect.width / videoAspect
+      offsetX = 0
+      offsetY = (rect.height - displayH) / 2
+    } else {
+      displayH = rect.height
+      displayW = rect.height * videoAspect
+      offsetX = (rect.width - displayW) / 2
+      offsetY = 0
+    }
+
     return {
-      x: rect.left + (pos.x / videoDimensions.width) * rect.width,
-      y: rect.top + (pos.y / videoDimensions.height) * rect.height
+      x: rect.left + offsetX + p.cursor.x * displayW,
+      y: rect.top + offsetY + p.cursor.y * displayH
     }
   }
 
@@ -246,7 +275,7 @@
     <div class="disconnect-screen">
       <h2>Session ended</h2>
       <p>The host ended the session or the connection was lost.</p>
-      <button class="btn-primary" onclick={() => navigate({ name: 'home' })}>Back to Home</button>
+      <button class="btn-primary" onclick={endSession}>Back to Home</button>
     </div>
   {:else}
     <div class="viewer-bar">
@@ -261,29 +290,31 @@
         {/if}
       </div>
       <div class="controls">
-        <button class="icon-btn" title="Mute / unmute audio" onclick={() => getService()?.toggleAudio()}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            {#if muted()}
-              <path d="M11 5 6 9H2v6h4l5 4V5z" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
-            {:else}
-              <path d="M11 5 6 9H2v6h4l5 4V5z" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-            {/if}
-          </svg>
+        {#if isHost}
+          <button class="icon-btn" aria-label="Mute or unmute shared audio" title="Mute / unmute audio" onclick={() => service?.toggleAudio()}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              {#if audioMuted}
+                <path d="M11 5 6 9H2v6h4l5 4V5z" /><line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+              {:else}
+                <path d="M11 5 6 9H2v6h4l5 4V5z" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+              {/if}
+            </svg>
+          </button>
+        {/if}
+        <button class="icon-btn" class:active={cursorsVisible} aria-label="Show or hide remote cursors" title="Show / hide cursors" onclick={() => service?.toggleCursors()}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>
         </button>
-        <button class="icon-btn" class:active={cursorsVisible} title="Show / hide cursors" onclick={() => getService()?.toggleCursors()}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>
+        <button class="icon-btn" aria-label="Toggle fit or actual size" title="Fit / actual size (1/2)" onclick={toggleFitMode}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
         </button>
-        <button class="icon-btn" title="Fit / actual size (1/2)" onclick={toggleFitMode}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
+        <button class="icon-btn" aria-label="Save a snapshot" title="Snapshot (S)" onclick={takeSnapshot}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
         </button>
-        <button class="icon-btn" title="Snapshot (S)" onclick={takeSnapshot}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
+        <button class="icon-btn" aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={toggleFullscreen}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
         </button>
-        <button class="icon-btn" title="Fullscreen (F)" onclick={toggleFullscreen}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg>
-        </button>
-        <button class="icon-btn" title="Diagnostics (D)" onclick={toggleDiagnostics}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>
+        <button class="icon-btn" aria-label="Toggle diagnostics" title="Diagnostics (D)" onclick={toggleDiagnostics}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" /></svg>
         </button>
         <button class="end-btn" onclick={endSession}>End</button>
       </div>
@@ -298,15 +329,16 @@
           onloadedmetadata={handleVideoEvent}
           onresize={handleVideoEvent}
         ></video>
-        {#if participants.filter((p) => !p.isSelf && !p.isHost).length > 0 || cursorsVisible}
+        {#if participants.length > 0 && cursorsVisible}
           {#each participants.filter((p) => !p.isSelf) as p (p.id)}
-            {#if p.cursor && cursorsVisible}
-              {#if cursorScreenPosition(p)}
+            {#if p.cursor}
+              {@const pos = cursorScreenPosition(p)}
+              {#if pos}
                 <div
                   class="remote-cursor"
-                  style="left: {cursorScreenPosition(p).x}px; top: {cursorScreenPosition(p).y}px; color: {p.color}"
+                  style="left: {pos.x}px; top: {pos.y}px; color: {p.color}"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4 2l15 8-7 2-3 7-5-17z" /></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 2l15 8-7 2-3 7-5-17z" /></svg>
                   <span class="cursor-name">{p.displayName}</span>
                 </div>
               {/if}
@@ -351,7 +383,7 @@
 
     {#if showDiagnostics}
       <div class="diagnostics-panel">
-        <div class="diag-row"><span>Signaling</span><b>{phase === 'disconnected' ? 'Disconnected' : 'Connected'}</b></div>
+        <div class="diag-row"><span>Signaling</span><b>{signalingStatus === 'connected' ? 'Connected' : signalingStatus === 'connecting' ? 'Connecting…' : 'Disconnected'}</b></div>
         <div class="diag-row"><span>Connection</span><b>{metrics?.connectionType === 'relay' ? 'Relay (TURN)' : metrics?.connectionType === 'direct' ? 'Direct (P2P)' : 'Unknown'}</b></div>
         <div class="diag-row"><span>RTT</span><b>{metrics?.rtt ?? '—'} ms</b></div>
         <div class="diag-row"><span>Bitrate</span><b>{metrics?.bitrate ? `${(metrics.bitrate / 1_000_000).toFixed(1)} Mbps` : '—'}</b></div>
@@ -499,7 +531,7 @@
     max-height: 100%;
   }
   .remote-cursor {
-    position: absolute;
+    position: fixed;
     transform: translate(-2px, -2px);
     pointer-events: none;
     z-index: 10;

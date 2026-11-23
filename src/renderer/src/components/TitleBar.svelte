@@ -1,23 +1,30 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { route } from '../routes/router'
+  import { route, navigate } from '../routes/router'
   import { settings, saveSettings, resolveTheme } from '../services/config'
+  import { sessionStore } from '../stores/session'
 
-  let isMaximized = false
   let effective: 'light' | 'dark' = 'light'
 
-  onMount(async () => {
-    if (window.desktop) {
-      isMaximized = await window.desktop.window.isMaximized()
-    }
+  onMount(() => {
     const unsub = settings.subscribe(($s) => {
       effective = resolveTheme($s.general.theme)
     })
     return () => unsub()
   })
 
+  function openHome(): void {
+    route.set({ name: 'home' })
+  }
+
+  function openActiveSession(): void {
+    const service = $sessionStore.service
+    if (!service) return
+    navigate({ name: service.getRole() === 'host' ? 'host' : 'viewer' })
+  }
+
   function toggleTheme(): void {
-    let current = $settings
+    const current = $settings
     const next = effective === 'dark' ? 'light' : 'dark'
     saveSettings({ ...current, general: { ...current.general, theme: next } })
   }
@@ -38,10 +45,16 @@
 <header class="titlebar">
   <div class="drag-region"></div>
   <div class="left">
-    <div class="logo" onclick={() => route.set({ name: 'home' })}>
+    <button type="button" class="logo" aria-label="Sight home" onclick={openHome}>
       <span class="logo-mark">S</span>
       <span class="logo-name">Sight</span>
-    </div>
+    </button>
+    {#if $sessionStore.service && $sessionStore.phase !== 'disconnected'}
+      <button type="button" class="live-pill" onclick={openActiveSession} aria-label="Return to active session" title="Return to active session">
+        <span class="live-dot" aria-hidden="true"></span>
+        LIVE
+      </button>
+    {/if}
   </div>
   <div class="controls">
     <button
@@ -98,6 +111,33 @@
     align-items: center;
     gap: 8px;
     cursor: pointer;
+    padding: 0;
+  }
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 14px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    box-shadow: var(--shadow-xs);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--text);
+  }
+  .live-pill:hover {
+    border-color: var(--success);
+  }
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse-dot 1.5s ease infinite;
   }
   .logo-mark {
     width: 24px;

@@ -163,6 +163,44 @@ describe('signaling server', () => {
     guest.ws.close()
   })
 
+  it('rejects a second hello on the same connection', async () => {
+    const host = await connect('host', 'Host')
+    send(host.ws, { type: 'hello', payload: { kind: 'host', displayName: 'Host again' } })
+    const error = await host.waitFor('error')
+    expect((error.payload as { code: string }).code).toBe('already-greeted')
+    host.ws.close()
+  })
+
+  it('allows only one session per host connection', async () => {
+    const host = await connect('host', 'Host')
+    send(host.ws, { type: 'create-session', payload: { displayName: 'Host' } })
+    await host.waitFor('session-created')
+    send(host.ws, { type: 'create-session', payload: { displayName: 'Host' } })
+    const error = await host.waitFor('error')
+    expect((error.payload as { code: string }).code).toBe('already-in-session')
+    host.ws.close()
+  })
+
+  it('rejects a second guest when the session is full', async () => {
+    const host = await connect('host', 'Host')
+    send(host.ws, { type: 'create-session', payload: { displayName: 'Host' } })
+    const created = await host.waitFor('session-created')
+    const code = (created.payload as { code: string }).code
+
+    const first = await connect('guest', 'First')
+    send(first.ws, { type: 'join-session', payload: { code, displayName: 'First' } })
+    await first.waitFor('session-joined')
+
+    const second = await connect('guest', 'Second')
+    send(second.ws, { type: 'join-session', payload: { code, displayName: 'Second' } })
+    const full = await second.waitFor('session-full')
+    expect((full.payload as { code: string }).code).toBe(code)
+
+    host.ws.close()
+    first.ws.close()
+    second.ws.close()
+  })
+
   it('rejects malformed messages', async () => {
     const guest = await connect('guest', 'Guest')
     send(guest.ws, { type: 'offer', payload: 'garbage' })

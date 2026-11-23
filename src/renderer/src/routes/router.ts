@@ -3,7 +3,7 @@ import { writable } from 'svelte/store'
 export type Route =
   | { name: 'home' }
   | { name: 'host-picker' }
-  | { name: 'host'; sessionId: string }
+  | { name: 'host' }
   | { name: 'join' }
   | { name: 'joining'; code: string }
   | { name: 'viewer' }

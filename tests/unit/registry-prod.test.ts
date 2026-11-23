@@ -41,4 +41,31 @@ describe('registry production hardening', () => {
     expect(r.expire(Date.now())).toHaveLength(0)
     expect(r.size).toBe(1)
   })
+
+  it('touch() slides the expiry forward', () => {
+    const r = new SessionRegistry()
+    const { session } = r.createSession(hostPeer('h1'))
+    session.expiresAt = Date.now() - 1000
+    r.touch(session)
+    expect(session.expiresAt).toBeGreaterThan(Date.now())
+    expect(r.expire()).toHaveLength(0)
+  })
+
+  it('accepts a per-session TTL and clamps it', () => {
+    const r = new SessionRegistry()
+    const { session } = r.createSession(hostPeer('h1'), undefined, 5 * 60_000)
+    expect(session.ttlMs).toBe(5 * 60_000)
+    const { session: tooShort } = r.createSession(hostPeer('h2'), undefined, 1)
+    expect(tooShort.ttlMs).toBe(60_000)
+    const { session: tooLong } = r.createSession(hostPeer('h3'), undefined, 9999 * 60_000)
+    expect(tooLong.ttlMs).toBe(86_400_000)
+  })
+
+  it('enforces capacity for the current single-guest UI', () => {
+    const r = new SessionRegistry()
+    const { session } = r.createSession(hostPeer('h1'))
+    expect(r.hasCapacity(session)).toBe(true)
+    r.addPeer(session, { id: 'g1', displayName: 'G', kind: 'guest', ws: {}, joinedAt: Date.now() })
+    expect(r.hasCapacity(session)).toBe(false)
+  })
 })

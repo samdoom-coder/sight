@@ -2,8 +2,7 @@
   import { onMount } from 'svelte'
   import { navigate } from '../routes/router'
   import { SessionService } from '../services/SessionService'
-  import { sessionStore } from '../stores/session'
-  import { showToast } from '../stores/toast'
+  import { sessionStore, clearActiveSession, getSessionService } from '../stores/session'
   import { config } from '../services/config'
 
   export let code = ''
@@ -26,9 +25,18 @@
   // The live session itself belongs to sessionStore and must survive
   // navigation to the viewer — never end it in the unmount teardown.
   let service: SessionService | null = null
+  let joinTimeout: ReturnType<typeof setTimeout> | null = null
+
+  function clearJoinTimeout(): void {
+    if (joinTimeout) {
+      clearTimeout(joinTimeout)
+      joinTimeout = null
+    }
+  }
 
   function retry(): void {
-    service?.endSession()
+    clearJoinTimeout()
+    clearActiveSession()
     service = null
     navigate({ name: 'join' })
   }
@@ -48,6 +56,9 @@
   }
 
   onMount(() => {
+    // Joining a new session replaces any session the user left running.
+    if (getSessionService()) clearActiveSession()
+
     // rotating tips: coarse 3.5s interval (4 renders total per cycle — cheap)
     const tipTimer = setInterval(() => {
       tipIdx = (tipIdx + 1) % tips.length
@@ -70,12 +81,22 @@
         {
           onPhaseChange: (p) => {
             phase = p
+            sessionStore.update((s) => ({ ...s, phase: p }))
           },
           onMetrics: () => {},
           onVideoReady: () => {},
           onError: (c, m) => {
+            clearJoinTimeout()
             error = m
             statusMessage = m
+            if (
+              c === 'session-not-found' ||
+              c === 'session-expired' ||
+              c === 'session-full' ||
+              c === 'signaling-failed'
+            ) {
+              clearActiveSession()
+            }
           },
           onStatusMessage: (m) => {
             statusMessage = m
@@ -85,20 +106,34 @@
       sessionStore.set({ service, phase: 'connecting', role: 'guest' })
       service.start()
 
+      joinTimeout = setTimeout(() => {
+        joinTimeout = null
+        if (phase === 'connected' || error) return
+        error = 'The host did not respond. Check the code and ask them to try again.'
+        statusMessage = error
+        clearActiveSession()
+      }, 25_000)
+
       const unsubPhase = service.phase.subscribe((p) => {
         phase = p
         if (p === 'connected') {
+          clearJoinTimeout()
           setTimeout(() => navigate({ name: 'viewer' }), 600)
         }
-        if (p === 'disconnected' && !error) {
-          error = 'Could not connect to the session.'
+        if (p === 'disconnected') {
+          clearJoinTimeout()
+          if (!error) error = 'Could not connect to the session.'
         }
       })
       const unsubErr = service.errorStore.subscribe((e) => {
-        if (e) error = e.message
+        if (e) {
+          clearJoinTimeout()
+          error = e.message
+        }
       })
 
       service.__cleanup = () => {
+        clearJoinTimeout()
         unsubPhase()
         unsubErr()
       }
@@ -106,6 +141,7 @@
 
     return () => {
       clearInterval(tipTimer)
+      clearJoinTimeout()
       unsubscribeConfig()
       service?.__cleanup?.()
     }

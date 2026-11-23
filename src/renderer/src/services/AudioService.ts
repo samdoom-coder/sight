@@ -4,17 +4,17 @@ export class AudioService {
   private enabled = false
   private audioTrack: MediaStreamTrack | null = null
   private stream: MediaStream | null = null
-  private capability: AudioCapability = 'supported'
+  private capability: AudioCapability
+  private readonly platformSupported: boolean
 
   constructor(private readonly platform: string) {
-    if (platform === 'linux') {
-      // Linux system audio capture is not portable across desktop environments.
-      this.capability = 'unsupported-platform'
-    }
+    // Linux system audio capture is not portable across desktop environments.
+    this.platformSupported = platform !== 'linux'
+    this.capability = this.platformSupported ? 'supported' : 'unsupported-platform'
   }
 
   get isSupported(): boolean {
-    return this.capability === 'supported'
+    return this.platformSupported
   }
 
   get capabilityState(): AudioCapability {
@@ -22,27 +22,55 @@ export class AudioService {
   }
 
   get isEnabled(): boolean {
-    return this.enabled
+    return this.enabled && this.audioTrack !== null
   }
 
-  async enable(): Promise<void> {
-    if (!this.isSupported || this.enabled) return
+  /**
+   * Capture system audio. This asks the platform for a display capture with
+   * audio; the video track is kept alive because Chromium may tie loopback
+   * audio to the capture session, but it is never attached to the peer
+   * connection.
+   *
+   * Returns false when the platform/user declined or no audio track was
+   * produced. Callers can retry later; a previous denial is not permanent.
+   */
+  async enable(): Promise<boolean> {
+    if (!this.platformSupported) {
+      this.capability = 'unsupported-platform'
+      return false
+    }
+    if (this.enabled && this.audioTrack) return true
+
     try {
       this.stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
       })
       const track = this.stream.getAudioTracks()[0]
       if (!track) {
         this.capability = 'system-audio-denied'
         this.stop()
-        return
+        return false
       }
       this.audioTrack = track
       this.enabled = true
+      this.capability = 'supported'
+      track.addEventListener('ended', () => {
+        this.enabled = false
+        this.audioTrack = null
+        this.stream?.getTracks().forEach((t) => t.stop())
+        this.stream = null
+      })
+      return true
     } catch {
       this.capability = 'system-audio-denied'
       this.enabled = false
+      this.stop()
+      return false
     }
   }
 
