@@ -43,6 +43,16 @@ export const MAX_MESSAGE_BYTES = Number(process.env.MAX_MESSAGE_BYTES ?? 64 * 10
 
 export const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '*').split(',').map((o) => o.trim())
 
+// Optional coturn REST credentials. When set, sessions receive short-lived
+// TURN credentials instead of relying on static VITE_TURN_* values baked into
+// the desktop bundle.
+export const TURN_URLS = (process.env.TURN_URLS ?? '')
+  .split(',')
+  .map((url) => url.trim())
+  .filter(Boolean)
+export const TURN_SECRET = process.env.TURN_SECRET ?? ''
+export const TURN_TTL_SECONDS = Number(process.env.TURN_TTL_SECONDS ?? 86_400)
+
 export const MAX_SESSIONS_PER_IP = Number(process.env.MAX_SESSIONS_PER_IP ?? 10)
 
 // Set TRUST_PROXY=1 only when the server is behind a reverse proxy you control

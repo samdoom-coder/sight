@@ -3,14 +3,26 @@ import { timingSafeEqual } from 'node:crypto'
 import type { SignalEnvelope } from '../../src/shared/protocol/messages'
 import { encodeMessage, validateMessage } from './protocol/validate'
 import { RateLimiter } from './security/rate-limiter'
-import { MAX_MESSAGE_BYTES, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_MESSAGES } from './config'
+import {
+  MAX_MESSAGE_BYTES,
+  RATE_LIMIT_WINDOW_MS,
+  RATE_LIMIT_MAX_MESSAGES,
+  TURN_SECRET,
+  TURN_TTL_SECONDS,
+  TURN_URLS
+} from './config'
 import { generatePeerId } from './session/ids'
 import type { Session, SessionRegistry, SessionPeer } from './session/registry'
+import { createTurnCredentials } from './turn/credentials'
 
 function tokensMatch(a: string, b: string): boolean {
   const left = Buffer.from(a)
   const right = Buffer.from(b)
   return left.length === right.length && timingSafeEqual(left, right)
+}
+
+function sessionIceServers() {
+  return createTurnCredentials(TURN_URLS, TURN_SECRET, TURN_TTL_SECONDS)
 }
 
 function send(ws: WebSocket, message: SignalEnvelope): void {
@@ -138,7 +150,8 @@ export function handleConnection(
             code,
             peerId,
             hostToken: session.hostToken,
-            expiresAt: session.expiresAt
+            expiresAt: session.expiresAt,
+            iceServers: sessionIceServers()
           }
         })
         log(`Session created (${session.id})`)
@@ -187,7 +200,8 @@ export function handleConnection(
             peers: registry
               .listPeers(session)
               .filter((peer) => peer.id !== session.hostId)
-              .map((peer) => ({ peerId: peer.id, displayName: peer.displayName }))
+              .map((peer) => ({ peerId: peer.id, displayName: peer.displayName })),
+            iceServers: sessionIceServers()
           }
         })
         // Tell the resumed host about guests that joined while it was away.
@@ -258,7 +272,13 @@ export function handleConnection(
         const hostPeer = session.peers.get(session.hostId)
         send(ws, {
           type: 'session-joined',
-          payload: { sessionId: session.id, hostId: session.hostId, hostName: hostPeer?.displayName ?? 'Host', peerId }
+          payload: {
+            sessionId: session.id,
+            hostId: session.hostId,
+            hostName: hostPeer?.displayName ?? 'Host',
+            peerId,
+            iceServers: sessionIceServers()
+          }
         })
         // Notify the host and every other guest, and send the existing guest
         // list to the guest that just joined.

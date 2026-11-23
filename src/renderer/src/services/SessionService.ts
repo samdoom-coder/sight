@@ -74,6 +74,8 @@ export class SessionService {
   private lastPhase: ConnectionPhase = 'idle'
   private audio: AudioService
   private cursorBounds: CursorBounds | null = null
+  private lastPointerSentAt = 0
+  private pointerVisibleSent = false
 
   readonly phase = writable<ConnectionPhase>('idle')
   readonly signalingStatus = writable<SignalingStatus>('idle')
@@ -86,6 +88,7 @@ export class SessionService {
   readonly statusMessage = writable<string>('')
   readonly audioMuted = writable<boolean>(true)
   readonly cursorsVisible = writable<boolean>(true)
+  readonly pointerSharing = writable<boolean>(true)
   readonly remoteStreamStore = writable<MediaStream | null>(null)
 
   __cleanup: (() => void) | null = null
@@ -166,6 +169,15 @@ export class SessionService {
     this.signaling.send({ type: 'hello', payload: { kind: this.role, displayName: this.init.displayName } })
   }
 
+  private applyIceServers(servers?: Array<{ urls: string; username?: string; credential?: string }>): void {
+    if (!servers || servers.length === 0) return
+    this.iceServers = servers.map((server) => ({
+      urls: server.urls,
+      ...(server.username ? { username: server.username } : {}),
+      ...(server.credential ? { credential: server.credential } : {})
+    }))
+  }
+
   private createSession(): void {
     this.signaling.send({
       type: 'create-session',
@@ -218,7 +230,9 @@ export class SessionService {
           peerId: string
           hostToken?: string
           expiresAt: number
+          iceServers?: Array<{ urls: string; username?: string; credential?: string }>
         }
+        this.applyIceServers(payload.iceServers)
         this.sessionId = payload.sessionId
         this.sessionCode = payload.code
         this.hostToken = payload.hostToken ?? null
@@ -237,7 +251,9 @@ export class SessionService {
           peerId: string
           expiresAt: number
           peers?: Array<{ peerId: string; displayName: string }>
+          iceServers?: Array<{ urls: string; username?: string; credential?: string }>
         }
+        this.applyIceServers(payload.iceServers)
         this.sessionId = payload.sessionId
         this.sessionCode = payload.code
         this.hostId = payload.peerId
@@ -279,7 +295,9 @@ export class SessionService {
           hostId: string
           hostName: string
           peerId: string
+          iceServers?: Array<{ urls: string; username?: string; credential?: string }>
         }
+        this.applyIceServers(payload.iceServers)
         this.sessionId = payload.sessionId
         this.hostId = payload.hostId
         this.sessionIdStore.set(payload.sessionId)
@@ -915,9 +933,25 @@ export class SessionService {
   private handleDataChannel(peerId: string, message: DataChannelMessage): void {
     switch (message.type) {
       case 'cursor': {
-        const payload = message.payload as CursorPosition & { participantId?: string }
+        const payload = message.payload as CursorPosition & { participantId?: string; visible?: boolean }
         const fromId = this.role === 'host' ? peerId : payload.participantId ?? this.hostId
         if (!fromId) break
+        if (payload.visible === false) {
+          this.participants.update((list) =>
+            list.map((p) => (p.id === fromId ? { ...p, cursor: null } : p))
+          )
+          if (this.role === 'host') {
+            this.broadcastDataChannel(
+              {
+                v: 1,
+                type: 'cursor',
+                payload: { participantId: fromId, x: 0, y: 0, timestamp: payload.timestamp, visible: false }
+              },
+              peerId
+            )
+          }
+          break
+        }
         const cursor = this.cursorService?.handleRemoteCursor(fromId, payload)
         if (cursor) {
           this.participants.update((list) =>
@@ -1053,6 +1087,56 @@ export class SessionService {
     this.cursorsVisible.set(next)
   }
 
+  togglePointerSharing(): void {
+    const next = !get(this.pointerSharing)
+    this.pointerSharing.set(next)
+    if (!next) this.hideLocalPointer()
+  }
+
+  hideLocalPointer(): void {
+    if (!this.pointerVisibleSent) return
+    if (this.role !== 'guest' || this.ended || !this.hostId || !this.participantId) return
+    const peer = this.peers.get(this.hostId)
+    if (!peer?.dataChannelOpen) return
+    this.pointerVisibleSent = false
+    peer.webrtc.sendDataChannelMessage({
+      v: 1,
+      type: 'cursor',
+      payload: {
+        participantId: this.participantId,
+        x: 0,
+        y: 0,
+        timestamp: Date.now(),
+        visible: false
+      }
+    })
+  }
+
+  /**
+   * A guest points at a normalized coordinate inside the host's video. The host
+   * attributes the message to the sender's peer id and relays it to the other
+   * viewers.
+   */
+  sendLocalPointer(x: number, y: number): void {
+    if (this.role !== 'guest' || this.ended || !get(this.pointerSharing)) return
+    if (!this.hostId || !this.participantId) return
+    const peer = this.peers.get(this.hostId)
+    if (!peer?.dataChannelOpen) return
+    const now = Date.now()
+    if (now - this.lastPointerSentAt < 40) return
+    const nx = Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0))
+    const ny = Math.min(1, Math.max(0, Number.isFinite(y) ? y : 0))
+    const sent = peer.webrtc.sendDataChannelMessage({
+      v: 1,
+      type: 'cursor',
+      payload: { participantId: this.participantId, x: nx, y: ny, timestamp: now, visible: true }
+    })
+    if (sent) {
+      this.lastPointerSentAt = now
+      this.pointerVisibleSent = true
+    }
+  }
+
   endSession(): void {
     this.ended = true
     if (this.role === 'host') {
@@ -1093,6 +1177,9 @@ export class SessionService {
     this.sessionCodeStore.set('')
     this.sessionIdStore.set('')
     this.audioMuted.set(true)
+    this.pointerSharing.set(true)
+    this.lastPointerSentAt = 0
+    this.pointerVisibleSent = false
     this.hostToken = null
     this.sessionId = null
     this.setPhase('disconnected')

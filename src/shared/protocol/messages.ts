@@ -52,6 +52,13 @@ export interface SessionCreatedPayload {
   peerId: string
   hostToken?: string
   expiresAt: number
+  iceServers?: TurnIceServer[]
+}
+
+export interface TurnIceServer {
+  urls: string
+  username?: string
+  credential?: string
 }
 
 export interface ResumeSessionPayload {
@@ -65,6 +72,7 @@ export interface SessionResumedPayload {
   peerId: string
   expiresAt: number
   peers?: Array<{ peerId: string; displayName: string }>
+  iceServers?: TurnIceServer[]
 }
 
 export interface EndSessionPayload {
@@ -81,6 +89,7 @@ export interface SessionJoinedPayload {
   hostId: string
   hostName: string
   peerId: string
+  iceServers?: TurnIceServer[]
 }
 
 export interface OfferPayload {

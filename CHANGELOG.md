@@ -52,6 +52,26 @@
 - Integration tests cover multi-guest joins, capacity, host resume, bad resume tokens, and
   host-ended sessions.
 
+## 0c. Guest pointer collaboration (2026-11-23)
+
+- Guests now send their pointer position while moving over the host video. The host
+  attributes the message to the sender's peer connection, updates that participant, and
+  relays it to the other viewers.
+- Added a "share my pointer" toggle (and `P` shortcut) to the guest viewer. Host cursors
+  continue to appear on every viewer.
+- Letterbox mapping is now a tested shared helper (`fitContainRect`), so pointers and
+  cursor overlays stay aligned in fit/actual/fullscreen modes.
+
+## 0d. Ephemeral TURN credentials (2026-11-23)
+
+- Server can mint coturn REST credentials when `TURN_URLS` + `TURN_SECRET` are set; the
+  username embeds an expiry and the credential is HMAC-SHA1(secret, username).
+- `session-created`, `session-joined`, and `session-resumed` carry short-lived `iceServers`;
+  the desktop app prefers them over static `VITE_TURN_*` values.
+- Added `TURN_TTL_SECONDS` (default 24h, clamped 60s–24h) and unit tests for the credential
+  format.
+- coturn/deployment docs switched from a static `user=` entry to `use-auth-secret`.
+
 ## 1. How to run (Windows PowerShell / macOS / Linux)
 
 ```powershell

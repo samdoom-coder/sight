@@ -15,9 +15,11 @@ encrypted peer-to-peer connection.
 - **Instant sessions** — start sharing with one click, join with a short code (`8K4-X9P`)
 - **Real WebRTC** — true `RTCPeerConnection` media transport, not a demo or simulation
 - **Direct P2P by default** — screen/audio traffic flows peer-to-peer whenever the network allows it
-- **TURN fallback** — automatic relay when direct connectivity is impossible
-- **Remote cursor overlay** — the host's cursor appears on every viewer, smoothed and
-  throttled over a WebRTC data channel
+- **TURN fallback** — automatic relay when direct connectivity is impossible, with optional
+  short-lived coturn credentials issued per session
+- **Remote cursor overlay** — the host's cursor appears on every viewer, and guests can
+  point at anything in the shared video; cursors are smoothed and throttled over WebRTC
+  data channels
 - **Live connection quality** — RTT, bitrate, frame rate, packet loss, direct/relay type
 - **Multiple viewers** — one host can share to several guests (one peer connection each),
   with a participant list and per-viewer connection state

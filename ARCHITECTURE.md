@@ -131,6 +131,10 @@ interface SignalEnvelope {
 The server validates every message (type allow-list, payload shape, size limits) and rate
 limits each connection. Session state is ephemeral and held in memory only.
 
+When `TURN_URLS` and `TURN_SECRET` are configured, `session-created`, `session-joined`, and
+`session-resumed` also carry short-lived coturn REST credentials (`iceServers`) for ICE
+gathering. The desktop app prefers those over static `VITE_TURN_*` fallback values.
+
 ## 4. Data channel protocol
 
 Once WebRTC connects, a dedicated `sight-data` data channel carries collaboration traffic.
@@ -150,8 +154,10 @@ Cursor messages use normalized coordinates:
 { participantId: 'p_abc', x: 0.483, y: 0.271, timestamp: 123456789 }
 ```
 
-The `CursorService` samples the host's mouse, throttles sends (~30ms), and interpolates
-remote cursors on the receiving side for smooth motion with minimal traffic.
+The host's `CursorService` samples the host mouse and sends its cursor to every guest.
+Guests sample pointer movement over the video element, map it through the letterboxed video
+rect, and send it to the host; the host re-broadcasts it to the other guests. Receivers
+interpolate cursors for smooth motion with minimal traffic.
 
 ## 5. Connection quality
 

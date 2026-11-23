@@ -52,6 +52,10 @@ export HOST_RECONNECT_GRACE_MS=60000
 export ALLOWED_ORIGINS=app://sight,https://sight.example.com
 export TRUST_PROXY=1
 export MAX_CONNECTIONS_PER_IP=20
+# Optional ephemeral TURN credentials (coturn REST API):
+export TURN_URLS=turn:turn.example.com:3478,turns:turn.example.com:5349
+export TURN_SECRET=CHANGE_ME_STATIC_AUTH_SECRET
+export TURN_TTL_SECONDS=86400
 
 node dist/server/index.js
 ```
@@ -59,7 +63,9 @@ node dist/server/index.js
 `SESSION_TTL_MS` is a sliding idle timeout: valid signaling traffic (including the app's
 20s heartbeat) keeps an active session alive. `MAX_PARTICIPANTS` includes the host (default
 8 total). `HOST_RECONNECT_GRACE_MS` keeps a session/code alive while a disconnected host
-reconnects; guests keep their P2P call during that window.
+reconnects; guests keep their P2P call during that window. When `TURN_URLS` and
+`TURN_SECRET` are set, the server includes short-lived TURN credentials in session
+responses, so the desktop bundle does not need a static TURN password.
 
 Set `TRUST_PROXY=1` **only** when the server is behind a reverse proxy you control.
 Otherwise `X-Forwarded-For` is attacker-controlled and the per-IP limits can be bypassed.
@@ -153,12 +159,10 @@ listening-port=3478
 tls-listening-port=5349
 realm=turn.example.com
 fingerprint
-lt-cred-mech
 
-# Static credentials (rotate regularly).
-# For production prefer REST/time-limited credentials: the values in
-# .env.production are bundled into the desktop app and can be extracted.
-user=sight:CHANGE_ME_STRONG_PASSWORD
+# Short-lived credentials minted by the Signaling server.
+use-auth-secret
+static-auth-secret=CHANGE_ME_STATIC_AUTH_SECRET
 
 # Optional: allow LAN traffic only where appropriate
 # allowed-peer-ip=10.0.0.0/8
@@ -170,12 +174,16 @@ pkey=/etc/ssl/private/privkey.pem
 # STUN is included with coturn
 ```
 
+Use the same `CHANGE_ME_STATIC_AUTH_SECRET` for `TURN_SECRET` on the Sight signaling
+server. Credentials are then issued per session and expire after `TURN_TTL_SECONDS`.
+
 Open the UDP/TCP range for media (default 49152–65535 or `min-port`/`max-port` you set).
 
 ### Health check
 
 ```bash
-turnutils_uclient -u sight -w CHANGE_ME_STRONG_PASSWORD 127.0.0.1
+# Mint a credential with the same secret, or use a short-lived session credential
+turnutils_uclient -u "<expiry>:sight" -w "<base64 hmac>" 127.0.0.1
 ```
 
 ## 4. Client configuration
@@ -195,15 +203,20 @@ VITE_TURN_PASSWORD=CHANGE_ME_STRONG_PASSWORD
 
 ### Time-limited TURN credentials (recommended)
 
-coturn supports REST API credentials. On the server, mint short-lived credentials:
+The signaling server can mint coturn REST credentials itself. Set `TURN_URLS`,
+`TURN_SECRET`, and `TURN_TTL_SECONDS` on the signaling server; every session response then
+includes short-lived `iceServers` entries. The desktop app uses those for ICE gathering.
+
+The static `.env.production` values remain a fallback for local/self-hosted TURN without a
+signaling secret, but they are baked into the renderer bundle and should not be used for a
+public deployment.
 
 ```
-username = <expiry-unixtimestamp>:<userid>
+username = <expiry-unixtimestamp>:sight
 password = base64(hmac_sha1(static-auth-secret, username))
 ```
 
-Configure the app to request these from your API before starting a session, and pass them as
-`RTCIceServer` entries.
+Configure coturn with `use-auth-secret` and `static-auth-secret` as shown above.
 
 ## 5. Packaging and distribution
 

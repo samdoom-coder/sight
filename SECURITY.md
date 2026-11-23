@@ -98,7 +98,9 @@ user's IP or depend on network access.
 - **WebRTC media** is always encrypted (DTLS for the data channel and DTLS-SRTP for media).
   This is inherent to WebRTC and not optional.
 - **Signaling** should be served over `wss://` in production (see DEPLOYMENT.md).
-- **TURN** traffic is end-to-end encrypted by WebRTC; the relay cannot decrypt it.
+- **TURN** traffic is end-to-end encrypted by WebRTC; the relay cannot decrypt it. TURN
+  credentials can be minted per session by the signaling server (`TURN_SECRET`, coturn
+  REST auth) and expire automatically; static `VITE_TURN_*` values are only a fallback.
 
 ## 7. Remote control
 

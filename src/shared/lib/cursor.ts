@@ -32,6 +32,49 @@ export interface InterpolatedCursor {
   y: number
 }
 
+export interface Rect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/**
+ * Compute the letterboxed content rect for `object-fit: contain` inside a box.
+ * Used to map pointer coordinates to the actual video frame, not the empty
+ * letterbox area.
+ */
+export function fitContainRect(
+  contentWidth: number,
+  contentHeight: number,
+  box: Rect
+): Rect | null {
+  if (contentWidth <= 0 || contentHeight <= 0 || box.width <= 0 || box.height <= 0) return null
+  const contentAspect = contentWidth / contentHeight
+  const boxAspect = box.width / box.height
+  let width: number
+  let height: number
+  let offsetX: number
+  let offsetY: number
+  if (contentAspect > boxAspect) {
+    width = box.width
+    height = box.width / contentAspect
+    offsetX = 0
+    offsetY = (box.height - height) / 2
+  } else {
+    height = box.height
+    width = box.height * contentAspect
+    offsetX = (box.width - width) / 2
+    offsetY = 0
+  }
+  return {
+    left: box.left + offsetX,
+    top: box.top + offsetY,
+    width,
+    height
+  }
+}
+
 const SMOOTHING_FACTOR = 0.35
 
 export function interpolateCursor(current: CursorPosition | null, target: CursorPosition): CursorPosition {

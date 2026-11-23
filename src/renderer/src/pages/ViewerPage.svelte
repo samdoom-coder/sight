@@ -3,6 +3,7 @@
   import { navigate } from '../routes/router'
   import { getSessionService, clearActiveSession } from '../stores/session'
   import { showToast } from '../stores/toast'
+  import { fitContainRect } from '@shared/lib/cursor'
   import type { ConnectionMetrics, ConnectionPhase, Participant } from '@shared/types/models'
 
   let videoEl: HTMLVideoElement
@@ -15,6 +16,7 @@
   let metrics: ConnectionMetrics | null = null
   let participants: Participant[] = []
   let cursorsVisible = true
+  let pointerSharing = true
   let audioMuted = true
   let fitMode: 'fit' | 'actual' = 'fit'
   let fullscreen = false
@@ -124,6 +126,9 @@
     const unsubCursors = activeService.cursorsVisible.subscribe((v) => {
       cursorsVisible = v
     })
+    const unsubPointer = activeService.pointerSharing.subscribe((v) => {
+      pointerSharing = v
+    })
     const unsubAudio = activeService.audioMuted.subscribe((v) => {
       audioMuted = v
     })
@@ -151,6 +156,7 @@
       unsubMetrics()
       unsubParticipants()
       unsubCursors()
+      unsubPointer()
       unsubAudio()
       unsubStream()
     }
@@ -166,6 +172,7 @@
     if (event.key === '1') fitMode = 'fit'
     if (event.key === '2') fitMode = 'actual'
     if (event.key === 'd' || event.key === 'D') toggleDiagnostics()
+    if (!isHost && (event.key === 'p' || event.key === 'P')) service?.togglePointerSharing()
   }
 
   function toggleFullscreen(): void {
@@ -220,36 +227,42 @@
     return '#e11d48'
   }
 
-  function cursorScreenPosition(p: Participant): { x: number; y: number } | null {
-    if (!p.cursor || !videoEl || videoDimensions.width === 0 || videoDimensions.height === 0) return null
+  function videoContentRect(): { left: number; top: number; width: number; height: number } | null {
+    if (!videoEl || videoDimensions.width === 0 || videoDimensions.height === 0) return null
     const rect = videoEl.getBoundingClientRect()
-    if (rect.width === 0 || rect.height === 0) return null
+    return fitContainRect(videoDimensions.width, videoDimensions.height, {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
+    })
+  }
 
-    // The video uses object-fit: contain, so the rendered frame is usually
-    // smaller than the element. Map normalized cursor coordinates into the
-    // actual letterboxed video rect instead of the whole container.
-    const videoAspect = videoDimensions.width / videoDimensions.height
-    const boxAspect = rect.width / rect.height
-    let displayW: number
-    let displayH: number
-    let offsetX: number
-    let offsetY: number
-    if (videoAspect > boxAspect) {
-      displayW = rect.width
-      displayH = rect.width / videoAspect
-      offsetX = 0
-      offsetY = (rect.height - displayH) / 2
-    } else {
-      displayH = rect.height
-      displayW = rect.height * videoAspect
-      offsetX = (rect.width - displayW) / 2
-      offsetY = 0
-    }
-
+  function cursorScreenPosition(p: Participant): { x: number; y: number } | null {
+    if (!p.cursor) return null
+    const content = videoContentRect()
+    if (!content) return null
     return {
-      x: rect.left + offsetX + p.cursor.x * displayW,
-      y: rect.top + offsetY + p.cursor.y * displayH
+      x: content.left + p.cursor.x * content.width,
+      y: content.top + p.cursor.y * content.height
     }
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    if (isHost || !pointerSharing || !service) return
+    const content = videoContentRect()
+    if (!content) return
+    const x = (event.clientX - content.left) / content.width
+    const y = (event.clientY - content.top) / content.height
+    if (x < 0 || x > 1 || y < 0 || y > 1) {
+      service.hideLocalPointer()
+      return
+    }
+    service.sendLocalPointer(x, y)
+  }
+
+  function handlePointerLeave(): void {
+    if (!isHost && pointerSharing) service?.hideLocalPointer()
   }
 
   function setVideoDimensions(): void {
@@ -304,6 +317,11 @@
         <button class="icon-btn" class:active={cursorsVisible} aria-label="Show or hide remote cursors" title="Show / hide cursors" onclick={() => service?.toggleCursors()}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /></svg>
         </button>
+        {#if !isHost}
+          <button class="icon-btn" class:active={pointerSharing} aria-label="Share my pointer" title="Share my pointer (P)" onclick={() => service?.togglePointerSharing()}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 3l13 7-6 2-2 6-5-15z" /><circle cx="4" cy="3" r="1.5" fill="currentColor" /></svg>
+          </button>
+        {/if}
         <button class="icon-btn" aria-label="Toggle fit or actual size" title="Fit / actual size (1/2)" onclick={toggleFitMode}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>
         </button>
@@ -328,6 +346,8 @@
           playsinline
           onloadedmetadata={handleVideoEvent}
           onresize={handleVideoEvent}
+          onpointermove={handlePointerMove}
+          onpointerleave={handlePointerLeave}
         ></video>
         {#if participants.length > 0 && cursorsVisible}
           {#each participants.filter((p) => !p.isSelf) as p (p.id)}

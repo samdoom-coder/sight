@@ -20,6 +20,7 @@ export interface CursorData {
   x: number
   y: number
   timestamp: number
+  visible?: boolean
 }
 
 export interface ParticipantStateData {
