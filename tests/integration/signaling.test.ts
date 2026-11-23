@@ -181,24 +181,41 @@ describe('signaling server', () => {
     host.ws.close()
   })
 
-  it('rejects a second guest when the session is full', async () => {
+  it('supports multiple guests and rejects only when capacity is reached', async () => {
     const host = await connect('host', 'Host')
     send(host.ws, { type: 'create-session', payload: { displayName: 'Host' } })
     const created = await host.waitFor('session-created')
     const code = (created.payload as { code: string }).code
+    const guests: Awaited<ReturnType<typeof connect>>[] = []
 
-    const first = await connect('guest', 'First')
-    send(first.ws, { type: 'join-session', payload: { code, displayName: 'First' } })
+    const first = await connect('guest', 'Guest 1')
+    send(first.ws, { type: 'join-session', payload: { code, displayName: 'Guest 1' } })
     await first.waitFor('session-joined')
+    guests.push(first)
 
-    const second = await connect('guest', 'Second')
-    send(second.ws, { type: 'join-session', payload: { code, displayName: 'Second' } })
-    const full = await second.waitFor('session-full')
+    const second = await connect('guest', 'Guest 2')
+    send(second.ws, { type: 'join-session', payload: { code, displayName: 'Guest 2' } })
+    await second.waitFor('session-joined')
+    const notice = await first.waitFor('peer-joined')
+    expect((notice.payload as { peerId: string }).peerId).toBe(second.peerId)
+    guests.push(second)
+
+    // Host + 7 guests = the default MAX_PARTICIPANTS of 8.
+    for (let i = 3; i <= 7; i++) {
+      const guest = await connect('guest', `Guest ${i}`)
+      send(guest.ws, { type: 'join-session', payload: { code, displayName: `Guest ${i}` } })
+      await guest.waitFor('session-joined')
+      guests.push(guest)
+    }
+
+    const overflow = await connect('guest', 'Guest 8')
+    send(overflow.ws, { type: 'join-session', payload: { code, displayName: 'Guest 8' } })
+    const full = await overflow.waitFor('session-full')
     expect((full.payload as { code: string }).code).toBe(code)
 
     host.ws.close()
-    first.ws.close()
-    second.ws.close()
+    for (const guest of guests) guest.ws.close()
+    overflow.ws.close()
   })
 
   it('rejects malformed messages', async () => {
@@ -209,26 +226,79 @@ describe('signaling server', () => {
     guest.ws.close()
   })
 
-  it('propagates host disconnect and expires the session', async () => {
+  it('resumes a host after a signaling disconnect without invalidating the code', async () => {
     const host = await connect('host', 'Host')
     send(host.ws, { type: 'create-session', payload: { displayName: 'Host' } })
     const created = await host.waitFor('session-created')
-    const code = (created.payload as { code: string }).code
+    const { code, sessionId, hostToken } = created.payload as {
+      code: string
+      sessionId: string
+      hostToken: string
+    }
+    expect(hostToken.length).toBeGreaterThan(20)
 
     const guest = await connect('guest', 'Guest')
     send(guest.ws, { type: 'join-session', payload: { code, displayName: 'Guest' } })
     await guest.waitFor('session-joined')
     await host.waitFor('peer-joined')
 
-    host.ws.close()
-    const left = await guest.waitFor('peer-left')
-    expect((left as { from: string }).from).toBeUndefined()
+    await new Promise<void>((resolve) => {
+      host.ws.once('close', () => resolve())
+      host.ws.close()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
 
-    // The code should no longer be joinable
+    // The guest stays in the session and can keep its P2P media alive during
+    // the host's grace window.
+    await expect(guest.waitFor('peer-left', 300)).rejects.toThrow()
+
+    const resumedHost = await connect('host', 'Host')
+    send(resumedHost.ws, { type: 'resume-session', payload: { sessionId, token: hostToken } })
+    const resumed = await resumedHost.waitFor('session-resumed')
+    expect((resumed.payload as { code: string }).code).toBe(code)
+    expect((resumed.payload as { peerId: string }).peerId).toBe(host.peerId)
+    expect((resumed.payload as { peers: Array<{ peerId: string; displayName: string }> }).peers).toEqual([
+      { peerId: guest.peerId, displayName: 'Guest' }
+    ])
+
+    const peerNotice = await resumedHost.waitFor('peer-joined')
+    expect((peerNotice.payload as { peerId: string }).peerId).toBe(guest.peerId)
+
+    // A guest who did not reconnect can still join the same live code.
     const late = await connect('guest', 'Late')
     send(late.ws, { type: 'join-session', payload: { code, displayName: 'Late' } })
-    await late.waitFor('session-not-found')
+    await late.waitFor('session-joined')
+
+    send(resumedHost.ws, { type: 'end-session', payload: {} })
+    const guestLeft = await guest.waitFor('peer-left')
+    expect((guestLeft.payload as { peerId: string }).peerId).toBe(host.peerId)
+    const lateLeft = await late.waitFor('peer-left')
+    expect((lateLeft.payload as { peerId: string }).peerId).toBe(host.peerId)
+
     guest.ws.close()
     late.ws.close()
+    resumedHost.ws.close()
+  })
+
+  it('rejects a resume attempt with the wrong token', async () => {
+    const host = await connect('host', 'Host')
+    send(host.ws, { type: 'create-session', payload: { displayName: 'Host' } })
+    const created = await host.waitFor('session-created')
+    const { sessionId } = created.payload as { sessionId: string }
+
+    await new Promise<void>((resolve) => {
+      host.ws.once('close', () => resolve())
+      host.ws.close()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const attacker = await connect('host', 'Host')
+    send(attacker.ws, {
+      type: 'resume-session',
+      payload: { sessionId, token: 'not-the-real-token-value-1234567890' }
+    })
+    const error = await attacker.waitFor('error')
+    expect((error.payload as { code: string }).code).toBe('resume-failed')
+    attacker.ws.close()
   })
 })

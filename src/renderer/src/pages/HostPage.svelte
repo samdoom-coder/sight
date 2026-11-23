@@ -11,6 +11,7 @@
   let metrics: ConnectionMetrics | null = null
   let code = ''
   let guestJoined = false
+  let guestCount = 0
   let signalingStatus = 'idle'
 
   let displayName = localStorage.getItem('sight-display-name') ?? 'Host'
@@ -98,7 +99,8 @@
       }
     })
     const unsubscribeParticipants = service.participants.subscribe((list) => {
-      guestJoined = list.some((p) => !p.isSelf && !p.isHost)
+      guestCount = list.filter((p) => !p.isSelf && !p.isHost).length
+      guestJoined = guestCount > 0
     })
     const unsubscribeMetrics = service.metrics.subscribe((m) => {
       metrics = m
@@ -155,7 +157,7 @@
   {#if phase === 'connected' && guestJoined}
     <div class="connected-banner">
       <span class="live-dot"></span>
-      Someone joined your session. Your screen is now being shared.
+      {guestCount === 1 ? '1 guest is connected. Your screen is being shared.' : `${guestCount} guests are connected. Your screen is being shared.`}
       <button class="viewer-link" onclick={goToViewer}>Open viewer →</button>
     </div>
   {/if}
@@ -202,7 +204,7 @@
       </div>
       <div class="status-item">
         <span class="status-dot" class:ok={guestJoined}></span>
-        <span>{guestJoined ? 'Guest connected' : 'Waiting for someone to join…'}</span>
+        <span>{guestJoined ? `${guestCount} guest${guestCount === 1 ? '' : 's'} connected` : 'Waiting for someone to join…'}</span>
       </div>
       {#if metrics?.rtt != null}
         <div class="status-item">

@@ -32,10 +32,9 @@ export const PORT = Number(process.env.PORT ?? 8787)
 export const HOST = process.env.HOST ?? '0.0.0.0'
 
 export const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS ?? 30 * 60 * 1000)
-// The desktop UI currently supports one host + one guest. Keep the server
-// default aligned so a second guest gets a clear "session full" response
-// instead of joining and waiting for an offer that never comes.
-export const MAX_PARTICIPANTS = Number(process.env.MAX_PARTICIPANTS ?? 2)
+// Host + guests. The host UI now manages one peer connection per guest; raise
+// this only if you have tested the bandwidth for that many viewers.
+export const MAX_PARTICIPANTS = Number(process.env.MAX_PARTICIPANTS ?? 8)
 
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 1000)
 export const RATE_LIMIT_MAX_MESSAGES = Number(process.env.RATE_LIMIT_MAX_MESSAGES ?? 60)
@@ -55,6 +54,10 @@ export const TRUST_PROXY = ['1', 'true', 'yes', 'on'].includes(
 export const MAX_CONNECTIONS_PER_IP = Number(process.env.MAX_CONNECTIONS_PER_IP ?? 20)
 
 export const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS ?? 30_000)
+
+// How long a session survives a host signaling disconnect so the same host can
+// resume it without invalidating the code for everyone.
+export const HOST_RECONNECT_GRACE_MS = Number(process.env.HOST_RECONNECT_GRACE_MS ?? 60_000)
 
 export const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000)
 

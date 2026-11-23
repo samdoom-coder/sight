@@ -6,6 +6,7 @@ import {
   ALLOWED_ORIGINS,
   HEARTBEAT_INTERVAL_MS,
   HOST,
+  HOST_RECONNECT_GRACE_MS,
   MAX_CONNECTIONS_PER_IP,
   MAX_MESSAGE_BYTES,
   MAX_SESSIONS_PER_IP,
@@ -172,8 +173,31 @@ const expirer = setInterval(() => {
     const ip = session.creatorIp
     if (ip) recordSessionEnded(ip, session.id)
   }
-  if (expired.length > 0) {
-    log(`Expired ${expired.length} session(s)`)
+
+  // A host that dropped signaling gets a grace window to resume. If it never
+  // comes back, end the session for the guests who stayed in the P2P call.
+  const lostHosts = registry.expireDisconnectedHosts(HOST_RECONNECT_GRACE_MS)
+  for (const session of lostHosts) {
+    for (const peer of session.peers.values()) {
+      if (peer.id === session.hostId) continue
+      const ws = peer.ws as WebSocket
+      if (ws.readyState === ws.OPEN) {
+        ws.send(
+          encodeMessage({
+            type: 'peer-left',
+            payload: { peerId: session.hostId },
+            sessionId: session.id
+          })
+        )
+        ws.close(4400, 'Host did not resume')
+      }
+    }
+    const ip = session.creatorIp
+    if (ip) recordSessionEnded(ip, session.id)
+  }
+
+  if (expired.length > 0 || lostHosts.length > 0) {
+    log(`Expired ${expired.length} session(s), reclaimed ${lostHosts.length} hostless session(s)`)
   }
 }, 60 * 1000)
 expirer.unref()

@@ -16,17 +16,19 @@ encrypted peer-to-peer connection.
 - **Real WebRTC** — true `RTCPeerConnection` media transport, not a demo or simulation
 - **Direct P2P by default** — screen/audio traffic flows peer-to-peer whenever the network allows it
 - **TURN fallback** — automatic relay when direct connectivity is impossible
-- **Remote cursor overlay** — the host's cursor appears on the viewer, smoothed and throttled
-  over a WebRTC data channel
+- **Remote cursor overlay** — the host's cursor appears on every viewer, smoothed and
+  throttled over a WebRTC data channel
 - **Live connection quality** — RTT, bitrate, frame rate, packet loss, direct/relay type
+- **Multiple viewers** — one host can share to several guests (one peer connection each),
+  with a participant list and per-viewer connection state
 - **Robust error handling** — clear, human explanations for every failure
 - **No accounts, no telemetry by default** — privacy-respecting by design
 - **Secure by construction** — `contextIsolation`, sandboxed renderer, tightly scoped IPC,
   ephemeral server-side sessions
 
-> **Current scope:** one host + one guest per session. The server and protocol are ready for
-> more peers, but the UI and peer-connection manager are deliberately 1:1 for now. Group
-> viewing is tracked as a follow-up.
+> **Current limits:** up to `MAX_PARTICIPANTS=8` total (host + 7 guests). The host uploads
+> one copy of the screen per guest, so bandwidth grows with the number of viewers. Very
+> large audiences should use an SFU-backed mode instead.
 
 ## Tech stack
 

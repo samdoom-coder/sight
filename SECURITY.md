@@ -87,7 +87,10 @@ user's IP or depend on network access.
   not a security boundary — treat them like a meeting PIN.
 - **Ephemeral sessions** — session state lives in memory only, has a sliding idle expiry
   (`SESSION_TTL_MS`, refreshed by signaling activity), and is destroyed when the host
-  disconnects. No history is stored.
+  explicitly ends it or its reconnect grace window expires. No history is stored.
+- **Host resume token** — a 256-bit token is issued only to the host. A reconnecting host
+  can rebind its new signaling socket inside `HOST_RECONNECT_GRACE_MS`; the token is
+  compared in constant time. Guests cannot use it to impersonate the host.
 - **No persistence** — the signaling server stores no screen data and no session history.
 
 ## 6. Transport security

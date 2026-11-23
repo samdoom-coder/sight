@@ -102,12 +102,14 @@ interface SignalEnvelope {
 | Type              | Payload                                | Purpose                          |
 | ----------------- | -------------------------------------- | -------------------------------- |
 | `hello`           | `{ kind: 'host'|'guest', displayName }`| Authenticate the socket role     |
-| `create-session`  | `{ displayName }`                      | Host requests a new session      |
+| `create-session`  | `{ displayName, ttlMs? }`              | Host requests a new session      |
+| `resume-session`  | `{ sessionId, token }`                 | Host rebinds after a reconnect   |
 | `join-session`    | `{ code, displayName }`                | Guest joins by code              |
 | `offer`           | `{ sdp }`                              | Relay SDP offer to a peer        |
 | `answer`          | `{ sdp }`                              | Relay SDP answer to a peer       |
 | `ice-candidate`   | `{ candidate }`                        | Relay an ICE candidate           |
 | `peer-renamed`    | `{ displayName }`                      | Notify peers of a rename         |
+| `end-session`     | `{}`                                   | Host explicitly ends the session |
 | `ping`            | `{}`                                   | Keepalive                        |
 
 ### Messages (server → client)
@@ -115,7 +117,8 @@ interface SignalEnvelope {
 | Type                 | Payload                          | Purpose                          |
 | -------------------- | -------------------------------- | -------------------------------- |
 | `welcome`            | `{ peerId }`                     | Assign a peer id                 |
-| `session-created`    | `{ sessionId, code, expiresAt }` | Host session ready               |
+| `session-created`    | `{ sessionId, code, hostToken, expiresAt }` | Host session ready    |
+| `session-resumed`    | `{ sessionId, code, peerId, expiresAt, peers }` | Host rebind success |
 | `session-joined`     | `{ sessionId, hostId, hostName }`| Guest joined                     |
 | `peer-joined`        | `{ peerId, displayName }`        | A peer joined the session        |
 | `peer-left`          | `{ peerId }`                     | A peer left / host ended         |
@@ -166,16 +169,19 @@ Metrics are exposed to the UI for the quality indicator and the diagnostics pane
 ## 6. Reconnection
 
 - On `iceConnectionState === disconnected`, the app waits 2.5s before treating it as a
-  failure (transient states are common on Wi-Fi). `failed` is handled immediately.
+  failure (transient states are common on Wi-Fi). `failed` is handled immediately. Each host
+  peer connection is restarted independently.
 - The **host** is the offerer: it calls `restartIce()`, creates a new offer, and sends it
   through signaling. The guest waits for that recovery offer (up to 20s) and answers it.
   Calling `restartIce()` without a new offer/answer exchange does not renegotiate.
-- Signaling disconnects automatically reconnect with exponential backoff (max 15s).
-  Reconnect currently establishes a fresh session; session resumption across a signaling
-  socket drop is a planned follow-up.
-- If the host closes the app or the session ends, guests receive `peer-left` /
-  `session-event { kind: 'ended' }` and the UI leaves the connected state.
-- Ending a session stops the local capture tracks and audio capture as well as closing the
+- Signaling disconnects reconnect with exponential backoff (max 15s). A host resumes the
+  same session/code with a server-issued host token inside `HOST_RECONNECT_GRACE_MS`; guests
+  keep their P2P media during the gap. A guest reconnect rejoins the existing code and the
+  host creates a fresh peer connection for it.
+- If the host explicitly ends the session, guests receive `peer-left` / `session-event
+  { kind: 'ended' }`. If the host disappears for longer than the grace window, the server
+  ends the session and notifies the guests.
+- Ending a session stops the local capture tracks and audio capture as well as closing every
   peer connection and signaling socket.
 
 ## 7. Screen capture
@@ -193,7 +199,9 @@ Metrics are exposed to the UI for the quality indicator and the diagnostics pane
 
 ## 8. Multi-participant design
 
-`Participant` models are stored per peer:
+The host owns one `RTCPeerConnection` per guest. Each connection carries the same local
+screen/audio stream and its own `sight-data` channel. Guests only connect to the host; they
+do not need peer connections to each other. Participant models are stored per peer:
 
 ```ts
 interface Participant {
@@ -210,11 +218,10 @@ interface Participant {
 }
 ```
 
-The server can model up to `MAX_PARTICIPANTS` peers, but the default is **2** (host +
-guest) and the current UI/peer-connection manager is intentionally 1:1. A second guest gets
-`session-full` instead of joining and waiting forever. Group viewing needs a per-peer
-`RTCPeerConnection` map on the host (or an SFU) and a UI for multiple streams; that work is
-not included yet.
+The server relays SDP/ICE between any pair in the session, notifies all peers when someone
+joins/leaves, and enforces `MAX_PARTICIPANTS` (default 8, including the host). Host upload
+bandwidth scales with the number of guests because the same stream is encoded once per peer
+connection; an SFU would be the next step for larger audiences.
 
 ## 9. Directory reference
 

@@ -22,7 +22,8 @@ Environment=PORT=8787
 # NEVER use * in production — set your real app origins.
 Environment=ALLOWED_ORIGINS=app://sight
 Environment=SESSION_TTL_MS=1800000
-Environment=MAX_PARTICIPANTS=2
+Environment=MAX_PARTICIPANTS=8
+Environment=HOST_RECONNECT_GRACE_MS=60000
 Environment=MAX_SESSIONS_PER_IP=10
 Environment=MAX_CONNECTIONS_PER_IP=20
 # This unit binds to loopback and expects nginx/Caddy in front, so trust the

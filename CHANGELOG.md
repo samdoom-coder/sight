@@ -34,6 +34,24 @@
 - Added `npm run check` (svelte-check) and wired it into CI; fixed the Home shake-animation
   type error, removed the broken `dev:watch` script, and clarified the dev commands.
 
+## 0b. Multi-guest + session resume (2026-11-23)
+
+- Host now keeps one `RTCPeerConnection` per guest instead of a single connection. Each
+  guest gets the screen/audio stream and a dedicated data channel.
+- Server notifies existing guests when a new guest joins (not just the host), so every
+  participant list stays complete.
+- Cursor messages received by the host are rebroadcast to the other guests.
+- Host metrics aggregate bitrate/frame rate/RTT across guests; guest metrics stay
+  per-connection.
+- Host disconnects from signaling are held for `HOST_RECONNECT_GRACE_MS` (default 60s).
+  The host resumes with a 256-bit token, keeps its code, and re-offers to any peer that
+  needs recovery. Explicit host end and grace expiry still tear the session down.
+- Guest signaling reconnect closes stale peer connections and rejoins the same code, so the
+  host creates a fresh connection for it.
+- `MAX_PARTICIPANTS` is back to 8 total (host + 7 guests), with bandwidth scaling documented.
+- Integration tests cover multi-guest joins, capacity, host resume, bad resume tokens, and
+  host-ended sessions.
+
 ## 1. How to run (Windows PowerShell / macOS / Linux)
 
 ```powershell
@@ -167,8 +185,7 @@ signaling round-trip), `npm run test` (52 tests), `npm run typecheck`.
   screen/window source, update GPU drivers).
 - No TURN by default: same-LAN works; internet/strict-NAT guests need
   `VITE_TURN_*` (coturn) — see `DEPLOYMENT.md`.
-- UI is currently 1 host + 1 guest; `MAX_PARTICIPANTS` defaults to 2 so a
-  second guest gets `session-full` instead of hanging.
-- Suggested follow-ups: multi-guest viewer UI, session resume after a
-  signaling reconnect, time-limited TURN credentials, ESLint, signed
+- Multi-guest viewing is supported, but the host uploads one stream per guest; for large
+  audiences the next step is an SFU-backed mode.
+- Suggested follow-ups: time-limited TURN credentials, ESLint, signed
   releases, and a browser-based guest viewer.

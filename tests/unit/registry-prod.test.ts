@@ -61,11 +61,31 @@ describe('registry production hardening', () => {
     expect(tooLong.ttlMs).toBe(86_400_000)
   })
 
-  it('enforces capacity for the current single-guest UI', () => {
+  it('enforces the configured participant capacity', () => {
     const r = new SessionRegistry()
     const { session } = r.createSession(hostPeer('h1'))
     expect(r.hasCapacity(session)).toBe(true)
-    r.addPeer(session, { id: 'g1', displayName: 'G', kind: 'guest', ws: {}, joinedAt: Date.now() })
+    for (let i = 0; i < 7; i++) {
+      r.addPeer(session, {
+        id: `g${i}`,
+        displayName: `G${i}`,
+        kind: 'guest',
+        ws: {},
+        joinedAt: Date.now()
+      })
+    }
+    expect(session.peers.size).toBe(8)
     expect(r.hasCapacity(session)).toBe(false)
+  })
+
+  it('gives a disconnected host a grace window before reclaiming the session', () => {
+    const r = new SessionRegistry()
+    const { session } = r.createSession(hostPeer('h1'))
+    const now = Date.now()
+    r.markHostDisconnected(session, now)
+    expect(r.expireDisconnectedHosts(1000, now + 500)).toHaveLength(0)
+    expect(r.size).toBe(1)
+    expect(r.expireDisconnectedHosts(1000, now + 1500)).toHaveLength(1)
+    expect(r.size).toBe(0)
   })
 })

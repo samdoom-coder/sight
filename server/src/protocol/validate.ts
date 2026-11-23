@@ -3,11 +3,13 @@ import type { SignalEnvelope, SignalType } from '../../../src/shared/protocol/me
 const VALID_TYPES = new Set<SignalType>([
   'hello',
   'create-session',
+  'resume-session',
   'join-session',
   'offer',
   'answer',
   'ice-candidate',
   'peer-renamed',
+  'end-session',
   'ping'
 ])
 
@@ -57,12 +59,26 @@ function isValidJoinSession(payload: unknown): boolean {
   return typeof payload.displayName === 'string' && payload.displayName.length <= 64
 }
 
+function isValidResumeSession(payload: unknown): boolean {
+  if (!isRecord(payload)) return false
+  if (typeof payload.sessionId !== 'string' || payload.sessionId.length < 3 || payload.sessionId.length > 128) {
+    return false
+  }
+  return typeof payload.token === 'string' && payload.token.length >= 16 && payload.token.length <= 128
+}
+
+function isValidEndSession(payload: unknown): boolean {
+  return payload === undefined || isRecord(payload)
+}
+
 function isValidPayload(type: SignalType, payload: unknown): boolean {
   switch (type) {
     case 'hello':
       return isValidHello(payload)
     case 'create-session':
       return isValidCreateSession(payload)
+    case 'resume-session':
+      return isValidResumeSession(payload)
     case 'join-session':
       return isValidJoinSession(payload)
     case 'offer':
@@ -72,6 +88,8 @@ function isValidPayload(type: SignalType, payload: unknown): boolean {
       return isIceCandidateLike(payload)
     case 'peer-renamed':
       return isRecord(payload) && typeof payload.displayName === 'string' && payload.displayName.length <= 64
+    case 'end-session':
+      return isValidEndSession(payload)
     case 'ping':
       return true
     default:

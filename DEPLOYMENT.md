@@ -47,7 +47,8 @@ export PORT=8787
 export HOST=0.0.0.0
 export SIGNALING_URL=wss://signal.example.com   # for the app env, not the server itself
 export SESSION_TTL_MS=1800000
-export MAX_PARTICIPANTS=2
+export MAX_PARTICIPANTS=8
+export HOST_RECONNECT_GRACE_MS=60000
 export ALLOWED_ORIGINS=app://sight,https://sight.example.com
 export TRUST_PROXY=1
 export MAX_CONNECTIONS_PER_IP=20
@@ -56,8 +57,9 @@ node dist/server/index.js
 ```
 
 `SESSION_TTL_MS` is a sliding idle timeout: valid signaling traffic (including the app's
-20s heartbeat) keeps an active session alive. `MAX_PARTICIPANTS=2` matches the current
-host+guest UI; raise it only when group viewing is implemented.
+20s heartbeat) keeps an active session alive. `MAX_PARTICIPANTS` includes the host (default
+8 total). `HOST_RECONNECT_GRACE_MS` keeps a session/code alive while a disconnected host
+reconnects; guests keep their P2P call during that window.
 
 Set `TRUST_PROXY=1` **only** when the server is behind a reverse proxy you control.
 Otherwise `X-Forwarded-For` is attacker-controlled and the per-IP limits can be bypassed.

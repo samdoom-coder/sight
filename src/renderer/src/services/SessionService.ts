@@ -14,6 +14,10 @@ import { ConnectionMonitor } from './ConnectionMonitor'
 import { AudioService } from './AudioService'
 import { participantColor, displayNameToColor } from '@shared/lib/color'
 
+const MAX_RECONNECT_ATTEMPTS = 4
+const DISCONNECT_GRACE_MS = 2500
+const GUEST_RECOVERY_TIMEOUT_MS = 20_000
+
 export interface SessionInit {
   signalingUrl: string
   iceServers: RTCIceServer[]
@@ -34,27 +38,42 @@ export interface SessionCallbacks {
   onStatusMessage: (message: string) => void
 }
 
+interface PeerState {
+  peerId: string
+  webrtc: WebRTCService
+  monitor: ConnectionMonitor
+  statsInterval: ReturnType<typeof setInterval> | null
+  reconnectAttempts: number
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  disconnectTimer: ReturnType<typeof setTimeout> | null
+  recoveryTimer: ReturnType<typeof setTimeout> | null
+  dataChannelOpen: boolean
+  initializing: boolean
+}
+
+interface CursorBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export class SessionService {
   private signaling: SignalingService
-  private webrtc: WebRTCService | null = null
+  private peers = new Map<string, PeerState>()
   private cursorService: CursorService | null = null
-  private monitor: ConnectionMonitor | null = null
   private localStream: MediaStream | null = null
   private participantId: string | null = null
   private hostId: string | null = null
   private sessionCode = ''
   private sessionId: string | null = null
+  private hostToken: string | null = null
   private role: 'host' | 'guest'
   private iceServers: RTCIceServer[]
-  private reconnectAttempts = 0
   private ended = false
   private lastPhase: ConnectionPhase = 'idle'
   private audio: AudioService
-  private remotePeerId: string | null = null
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private disconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private guestRecoveryTimer: ReturnType<typeof setTimeout> | null = null
-  private cursorBounds: { x: number; y: number; width: number; height: number } | null = null
+  private cursorBounds: CursorBounds | null = null
 
   readonly phase = writable<ConnectionPhase>('idle')
   readonly signalingStatus = writable<SignalingStatus>('idle')
@@ -105,16 +124,18 @@ export class SessionService {
   }
 
   getPeerConnection(): RTCPeerConnection | null {
-    return this.webrtc?.peerConnection ?? null
+    for (const peer of this.peers.values()) {
+      const pc = peer.webrtc.peerConnection
+      if (pc) return pc
+    }
+    return null
   }
 
-  /** Local capture stream (used by the host's own preview). */
   getLocalStream(): MediaStream | null {
     return this.localStream
   }
 
-  /** Bounds of the display being shared, used to normalize host cursor coordinates. */
-  setCursorBounds(bounds: { x: number; y: number; width: number; height: number } | null): void {
+  setCursorBounds(bounds: CursorBounds | null): void {
     this.cursorBounds = bounds
   }
 
@@ -145,47 +166,122 @@ export class SessionService {
     this.signaling.send({ type: 'hello', payload: { kind: this.role, displayName: this.init.displayName } })
   }
 
+  private createSession(): void {
+    this.signaling.send({
+      type: 'create-session',
+      payload: {
+        displayName: this.init.displayName,
+        sourceKind: this.init.sourceKind,
+        ttlMs: this.init.sessionTtlMs
+      }
+    })
+  }
+
+  private sendSignal(to: string, message: Omit<SignalEnvelope, 'to'>): boolean {
+    return this.signaling.sendTo(to, { ...message, sessionId: this.sessionId ?? undefined })
+  }
+
   private handleSignal(message: SignalEnvelope): void {
     console.debug('[session] signal <-', message.type)
     switch (message.type) {
       case 'welcome': {
         const payload = message.payload as { peerId: string }
+        const reconnectingGuest = this.role === 'guest' && this.sessionId !== null
         this.participantId = payload.peerId
-        this.signaling.setPeerId(this.participantId)
+        this.signaling.setPeerId(payload.peerId)
+
         if (this.role === 'host') {
-          this.signaling.send({
-            type: 'create-session',
-            payload: {
-              displayName: this.init.displayName,
-              sourceKind: this.init.sourceKind,
-              ttlMs: this.init.sessionTtlMs
-            }
-          })
+          if (this.hostToken && this.sessionId) {
+            this.signaling.send({
+              type: 'resume-session',
+              payload: { sessionId: this.sessionId, token: this.hostToken }
+            })
+          } else {
+            this.createSession()
+          }
         } else {
+          if (reconnectingGuest) this.prepareGuestReconnect()
           this.signaling.send({
             type: 'join-session',
-            payload: { code: this.init.code ?? '', displayName: this.init.displayName }
+            payload: {
+              code: this.sessionCode || this.init.code || '',
+              displayName: this.init.displayName
+            }
           })
         }
         break
       }
       case 'session-created': {
-        const payload = message.payload as { sessionId: string; code: string; peerId: string; expiresAt: number }
+        const payload = message.payload as {
+          sessionId: string
+          code: string
+          peerId: string
+          hostToken?: string
+          expiresAt: number
+        }
         this.sessionId = payload.sessionId
         this.sessionCode = payload.code
+        this.hostToken = payload.hostToken ?? null
+        this.hostId = payload.peerId
         this.sessionIdStore.set(payload.sessionId)
         this.sessionCodeStore.set(payload.code)
-        this.hostId = payload.peerId
         this.addSelfParticipant()
         this.callbacks.onStatusMessage('Session ready. Waiting for someone to join...')
         this.setPhase('connecting')
         break
       }
+      case 'session-resumed': {
+        const payload = message.payload as {
+          sessionId: string
+          code: string
+          peerId: string
+          expiresAt: number
+          peers?: Array<{ peerId: string; displayName: string }>
+        }
+        this.sessionId = payload.sessionId
+        this.sessionCode = payload.code
+        this.hostId = payload.peerId
+        this.participantId = payload.peerId
+        this.signaling.setPeerId(payload.peerId)
+        this.sessionIdStore.set(payload.sessionId)
+        this.sessionCodeStore.set(payload.code)
+
+        // Reconcile against the server snapshot: guests may have joined or left
+        // while this host's signaling socket was down.
+        if (payload.peers) {
+          const listed = new Set(payload.peers.map((peer) => peer.peerId))
+          for (const participant of get(this.participants)) {
+            if (!participant.isSelf && !listed.has(participant.id)) {
+              this.removeParticipant(participant.id)
+            }
+          }
+          for (const peerId of [...this.peers.keys()]) {
+            if (!listed.has(peerId)) this.closePeer(peerId)
+          }
+          for (const peer of payload.peers) {
+            this.addParticipant(peer.peerId, peer.displayName, false)
+          }
+        }
+
+        this.addSelfParticipant()
+        this.updateHostPhase()
+        // Recover any existing peer connection that failed while signaling was down.
+        for (const peer of this.peers.values()) {
+          this.clearPeerTimers(peer)
+          peer.reconnectAttempts = 0
+          if (!peer.dataChannelOpen && !peer.initializing) void this.renegotiateHostPeer(peer.peerId)
+        }
+        break
+      }
       case 'session-joined': {
-        const payload = message.payload as { sessionId: string; hostId: string; hostName: string; peerId: string }
+        const payload = message.payload as {
+          sessionId: string
+          hostId: string
+          hostName: string
+          peerId: string
+        }
         this.sessionId = payload.sessionId
         this.hostId = payload.hostId
-        this.remotePeerId = payload.hostId
         this.sessionIdStore.set(payload.sessionId)
         this.participantId = payload.peerId
         this.signaling.setPeerId(payload.peerId)
@@ -195,13 +291,25 @@ export class SessionService {
         this.setPhase('connecting')
         break
       }
-      case 'session-not-found': {
-        this.setError('session-not-found', 'We could not find that session code. Double-check it and try again.')
-        this.cleanup()
-        break
-      }
+      case 'session-not-found':
       case 'session-expired': {
-        this.setError('session-expired', 'That session has expired. Ask the host to start a new one.')
+        if (this.role === 'host' && this.hostToken) {
+          // The server no longer has the old session (expired or restarted).
+          // Fall back to a fresh code instead of leaving the app dead.
+          this.hostToken = null
+          this.closeAllPeers()
+          this.participants.set([])
+          this.remoteStreamStore.set(null)
+          this.callbacks.onStatusMessage('Previous session expired. Starting a new one...')
+          this.createSession()
+          break
+        }
+        this.setError(
+          message.type,
+          message.type === 'session-not-found'
+            ? 'We could not find that session code. Double-check it and try again.'
+            : 'That session has expired. Ask the host to start a new one.'
+        )
         this.cleanup()
         break
       }
@@ -213,39 +321,51 @@ export class SessionService {
       case 'peer-joined': {
         const payload = message.payload as { peerId: string; displayName: string }
         this.addParticipant(payload.peerId, payload.displayName, false)
-        if (this.role === 'host') {
-          this.remotePeerId = payload.peerId
-          this.initWebRTCForPeer(payload.peerId)
+        if (this.role === 'host' && !this.peers.has(payload.peerId)) {
+          void this.connectToGuest(payload.peerId)
         }
         break
       }
       case 'peer-left': {
         const payload = message.payload as { peerId: string }
         this.removeParticipant(payload.peerId)
+        this.closePeer(payload.peerId)
         if (this.role === 'guest' && payload.peerId === this.hostId) {
           this.handleHostLeft()
-        } else if (this.role === 'host' && this.remotePeerId === payload.peerId) {
-          // The guest left; keep the host session (and capture) alive for the
-          // next guest, but tear down the peer connection.
-          this.teardownPeer()
+        } else if (this.role === 'host') {
+          this.updateHostPhase()
         }
         break
       }
       case 'offer': {
-        if (message.from) this.remotePeerId = message.from
+        const from = message.from
+        if (!from) return
         const payload = message.payload as { sdp: RTCSessionDescriptionInit }
-        this.handleIncomingOffer(payload.sdp)
+        if (this.role === 'guest') {
+          if (from !== this.hostId) return
+          void this.handleGuestOffer(from, payload.sdp)
+        } else {
+          this.handleHostOffer(from, payload.sdp)
+        }
         break
       }
       case 'answer': {
-        if (message.from) this.remotePeerId = message.from
+        const from = message.from
+        if (!from) return
         const payload = message.payload as { sdp: RTCSessionDescriptionInit }
-        this.handleIncomingAnswer(payload.sdp)
+        const peer = this.peers.get(from)
+        if (peer) {
+          peer.webrtc.handleAnswer(payload.sdp).catch((err) => {
+            console.warn('[session] answer failed', err)
+          })
+        }
         break
       }
       case 'ice-candidate': {
+        const from = message.from
+        if (!from) return
         const payload = message.payload as { candidate: RTCIceCandidateInit | null }
-        this.webrtc?.addIceCandidate(payload.candidate)
+        this.peers.get(from)?.webrtc.addIceCandidate(payload.candidate)
         break
       }
       case 'peer-renamed': {
@@ -255,16 +375,36 @@ export class SessionService {
       }
       case 'error': {
         const payload = message.payload as { code: string; message: string }
+        if (payload.code === 'resume-failed' && this.role === 'host' && this.hostToken) {
+          this.hostToken = null
+          this.closeAllPeers()
+          this.participants.set([])
+          this.remoteStreamStore.set(null)
+          this.callbacks.onStatusMessage('Previous session expired. Starting a new one...')
+          this.createSession()
+          break
+        }
         this.setError(payload.code, payload.message)
         break
       }
     }
   }
 
+  private prepareGuestReconnect(): void {
+    this.closeAllPeers()
+    this.remoteStreamStore.set(null)
+    this.participants.update((list) => list.filter((p) => p.isSelf))
+    this.cursorService?.stop()
+    this.cursorService = null
+  }
+
   private addParticipant(participantId: string, displayName: string, isHost: boolean): void {
     if (participantId === this.participantId) return
     const existing = get(this.participants).find((p) => p.id === participantId)
-    if (existing) return
+    if (existing) {
+      this.updateParticipantName(participantId, displayName)
+      return
+    }
     const participant: Participant = {
       id: participantId,
       displayName,
@@ -287,13 +427,29 @@ export class SessionService {
   }
 
   private updateParticipantName(participantId: string, displayName: string): void {
-    this.participants.update((list) => list.map((p) => (p.id === participantId ? { ...p, displayName } : p)))
+    this.participants.update((list) =>
+      list.map((p) => (p.id === participantId ? { ...p, displayName } : p))
+    )
+  }
+
+  private setParticipantConnection(participantId: string, state: Participant['connectionState']): void {
+    this.participants.update((list) =>
+      list.map((p) => (p.id === participantId ? { ...p, connectionState: state } : p))
+    )
   }
 
   private addSelfParticipant(): void {
     if (!this.participantId) return
-    const existing = get(this.participants).find((p) => p.isSelf)
-    if (existing) return
+    const list = get(this.participants)
+    const existing = list.find((p) => p.isSelf)
+    if (existing) {
+      if (existing.id !== this.participantId) {
+        this.participants.update((items) =>
+          items.map((p) => (p.isSelf ? { ...p, id: this.participantId! } : p))
+        )
+      }
+      return
+    }
     const self: Participant = {
       id: this.participantId,
       displayName: this.init.displayName,
@@ -306,241 +462,410 @@ export class SessionService {
       color: participantColor(0),
       rtt: null
     }
-    this.participants.update((list) => [...list, self])
+    this.participants.update((items) => [...items, self])
   }
 
-  private async initWebRTCForPeer(targetPeerId: string): Promise<void> {
-    if (this.webrtc) return
-    this.remotePeerId = targetPeerId
-    await this.initWebRTCCommon()
-    this.setPhase('negotiating')
-    this.callbacks.onStatusMessage('Negotiating with the guest...')
-    const offer = await this.webrtc!.createOffer()
-    this.signaling.sendTo(targetPeerId, { type: 'offer', payload: { sdp: offer }, sessionId: this.sessionId ?? undefined })
-  }
-
-  private async initWebRTCCommon(): Promise<void> {
-    if (this.webrtc) return
-    this.webrtc = new WebRTCService({
+  private createPeer(peerId: string): PeerState {
+    const webrtc = new WebRTCService({
       iceServers: this.iceServers,
       role: this.role,
-      onConnectionStateChange: (state) => this.handleIceStateChange(state),
-      onDataChannelMessage: (message) => this.handleDataChannel(message),
-      onTrack: () => {
-        const stream = this.webrtc?.getRemoteStream()
-        if (stream) {
-          this.remoteStreamStore.set(stream)
-          this.callbacks.onVideoReady(stream)
-        }
-      },
-      onDataChannelOpen: () => {
-        this.setPhase('connected')
-        this.callbacks.onStatusMessage('Connected.')
-        this.startCursorTransport()
-        this.sendHello()
-      },
+      onConnectionStateChange: (state) => this.handlePeerIceState(peerId, state),
+      onDataChannelMessage: (message) => this.handleDataChannel(peerId, message),
+      onTrack: () => this.handlePeerTrack(peerId),
       onIceCandidate: (candidate) => {
-        const target = this.remotePeerId ?? this.hostId
-        if (!target) return
-        this.signaling.sendTo(target, {
-          type: 'ice-candidate',
-          payload: { candidate },
-          sessionId: this.sessionId ?? undefined
-        })
-      }
+        this.sendSignal(peerId, { type: 'ice-candidate', payload: { candidate } })
+      },
+      onDataChannelOpen: () => this.handlePeerDataChannelOpen(peerId),
+      onDataChannelClose: () => this.handlePeerDataChannelClose(peerId),
+      onDataChannelError: () => this.handlePeerDataChannelClose(peerId),
+      onIceError: (error) => console.warn('[session] ICE candidate error', error)
     })
-
-    this.monitor = new ConnectionMonitor((metrics) => {
-      this.metrics.set(metrics)
-      this.callbacks.onMetrics(metrics)
-    })
-
-    if (this.localStream) {
-      this.webrtc.setLocalStream(this.localStream)
+    if (this.localStream) webrtc.setLocalStream(this.localStream)
+    const monitor = new ConnectionMonitor(() => this.handlePeerMetrics(peerId))
+    return {
+      peerId,
+      webrtc,
+      monitor,
+      statsInterval: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+      disconnectTimer: null,
+      recoveryTimer: null,
+      dataChannelOpen: false,
+      initializing: false
     }
-
-    await this.webrtc.initialize()
-
-    // Audio may have been enabled before this peer connection was created
-    // (e.g. after a guest leaves and a new guest joins). Re-attach it.
-    const audioTrack = this.audio.getAudioTrack()
-    if (audioTrack) {
-      this.webrtc.addAudioTrack(audioTrack)
-      this.webrtc.setAudioEnabled(!get(this.audioMuted))
-    }
-
-    this.startStatsLoop()
   }
 
-  private async handleIncomingOffer(sdp: RTCSessionDescriptionInit): Promise<void> {
-    this.clearGuestRecoveryTimer()
-    if (!this.webrtc) {
-      await this.initWebRTCCommon()
+  private async connectToGuest(peerId: string): Promise<void> {
+    if (this.ended || this.role !== 'host' || this.peers.has(peerId)) return
+    const peer = this.createPeer(peerId)
+    this.peers.set(peerId, peer)
+    peer.initializing = true
+
+    try {
+      await peer.webrtc.initialize()
+      if (this.ended || this.peers.get(peerId) !== peer) return
+      peer.initializing = false
+      const audioTrack = this.audio.getAudioTrack()
+      if (audioTrack) {
+        peer.webrtc.addAudioTrack(audioTrack)
+        peer.webrtc.setAudioEnabled(!get(this.audioMuted))
+      }
+      this.startPeerStats(peer)
+      if (!this.hasConnectedPeers()) {
+        this.setPhase('negotiating')
+        this.callbacks.onStatusMessage('Negotiating with the guest...')
+      } else {
+        this.callbacks.onStatusMessage('A new guest is joining...')
+      }
+      const offer = await peer.webrtc.createOffer()
+      this.sendSignal(peerId, { type: 'offer', payload: { sdp: offer } })
+    } catch (err) {
+      console.warn('[session] could not create peer for guest', peerId, err)
+      this.closePeer(peerId)
     }
+  }
+
+  private async handleGuestOffer(peerId: string, sdp: RTCSessionDescriptionInit): Promise<void> {
+    let peer = this.peers.get(peerId)
+    if (!peer) {
+      peer = this.createPeer(peerId)
+      this.peers.set(peerId, peer)
+      peer.initializing = true
+      try {
+        await peer.webrtc.initialize()
+        if (this.ended || this.peers.get(peerId) !== peer) return
+        peer.initializing = false
+        this.startPeerStats(peer)
+      } catch (err) {
+        console.warn('[session] could not initialise guest peer', err)
+        this.closePeer(peerId)
+        return
+      }
+    }
+
+    this.clearPeerTimers(peer)
     this.setPhase('negotiating')
     this.callbacks.onStatusMessage('Negotiating with the host...')
-    const answer = await this.webrtc!.handleOffer(sdp)
-    if (this.hostId) {
-      this.signaling.sendTo(this.hostId, { type: 'answer', payload: { sdp: answer }, sessionId: this.sessionId ?? undefined })
+    try {
+      const answer = await peer.webrtc.handleOffer(sdp)
+      this.sendSignal(peerId, { type: 'answer', payload: { sdp: answer } })
+      if (peer.dataChannelOpen) {
+        this.setPhase('connected')
+        this.callbacks.onStatusMessage('Connected.')
+      }
+    } catch (err) {
+      console.warn('[session] offer handling failed', err)
+      this.handlePeerFailure(peerId)
     }
   }
 
-  private async handleIncomingAnswer(sdp: RTCSessionDescriptionInit): Promise<void> {
-    if (!this.webrtc) return
-    await this.webrtc.handleAnswer(sdp)
+  private handleHostOffer(peerId: string, sdp: RTCSessionDescriptionInit): void {
+    const peer = this.peers.get(peerId)
+    if (!peer) return
+    this.clearPeerTimers(peer)
+    peer.webrtc
+      .handleOffer(sdp)
+      .then((answer) => {
+        this.sendSignal(peerId, { type: 'answer', payload: { sdp: answer } })
+        if (peer.dataChannelOpen) this.updateHostPhase()
+      })
+      .catch((err) => {
+        console.warn('[session] offer handling failed', err)
+        this.handlePeerFailure(peerId)
+      })
   }
 
-  private handleIceStateChange(state: RTCIceConnectionState): void {
-    console.debug('[webrtc] ice state:', state)
+  private handlePeerTrack(peerId: string): void {
+    if (this.role !== 'guest') return
+    const stream = this.peers.get(peerId)?.webrtc.getRemoteStream()
+    if (stream) {
+      this.remoteStreamStore.set(stream)
+      this.callbacks.onVideoReady(stream)
+    }
+  }
+
+  private startPeerStats(peer: PeerState): void {
+    if (peer.statsInterval) return
+    const tick = async (): Promise<void> => {
+      if (this.ended || this.peers.get(peer.peerId) !== peer) return
+      try {
+        const stats = await peer.webrtc.getStats()
+        await peer.monitor.update(stats)
+      } catch {
+        // The peer connection can close between the check and getStats().
+      }
+    }
+    void tick()
+    peer.statsInterval = setInterval(tick, 2000)
+  }
+
+  private handlePeerMetrics(peerId: string): void {
+    const peer = this.peers.get(peerId)
+    if (!peer) return
+    if (this.role === 'guest') {
+      const metrics = peer.monitor.current
+      this.metrics.set(metrics)
+      this.callbacks.onMetrics(metrics)
+      return
+    }
+    const aggregate = this.aggregateHostMetrics()
+    this.metrics.set(aggregate)
+    if (aggregate) this.callbacks.onMetrics(aggregate)
+  }
+
+  private aggregateHostMetrics(): ConnectionMetrics | null {
+    const values = [...this.peers.values()].map((p) => p.monitor.current)
+    const active = values.filter((m) => m.rtt != null || m.bitrate != null || m.connectionType !== 'unknown')
+    if (active.length === 0) return null
+
+    let bitrate: number | null = null
+    let frameRate: number | null = null
+    let packetLoss: number | null = null
+    let rttTotal = 0
+    let rttCount = 0
+    let localCandidateType: string | null = null
+    let remoteCandidateType: string | null = null
+    let videoWidth: number | null = null
+    let videoHeight: number | null = null
+    let codec: string | null = null
+    let connectionType: ConnectionMetrics['connectionType'] = 'unknown'
+
+    for (const m of active) {
+      if (m.bitrate != null) bitrate = (bitrate ?? 0) + m.bitrate
+      if (m.frameRate != null) frameRate = Math.max(frameRate ?? 0, m.frameRate)
+      if (m.packetLoss != null) {
+        packetLoss = packetLoss == null ? m.packetLoss : (packetLoss + m.packetLoss) / 2
+      }
+      if (m.rtt != null) {
+        rttTotal += m.rtt
+        rttCount++
+      }
+      localCandidateType ??= m.localCandidateType
+      remoteCandidateType ??= m.remoteCandidateType
+      videoWidth ??= m.videoWidth
+      videoHeight ??= m.videoHeight
+      codec ??= m.codec
+      if (m.connectionType === 'relay') connectionType = 'relay'
+      else if (m.connectionType === 'direct' && connectionType !== 'relay') connectionType = 'direct'
+    }
+
+    return {
+      rtt: rttCount > 0 ? Math.round(rttTotal / rttCount) : null,
+      packetLoss: packetLoss == null ? null : Math.round(packetLoss * 10) / 10,
+      bitrate,
+      frameRate,
+      codec,
+      connectionType,
+      localCandidateType,
+      remoteCandidateType,
+      videoWidth,
+      videoHeight
+    }
+  }
+
+  private handlePeerIceState(peerId: string, state: RTCIceConnectionState): void {
+    const peer = this.peers.get(peerId)
+    if (!peer || this.ended) return
+    console.debug('[webrtc] ice state:', peerId, state)
     switch (state) {
       case 'checking':
-        this.setPhase('establishing')
-        this.callbacks.onStatusMessage('Establishing a secure connection...')
+        if (this.role === 'guest') {
+          this.setPhase('establishing')
+          this.callbacks.onStatusMessage('Establishing a secure connection...')
+        }
         break
       case 'connected':
       case 'completed':
-        this.clearRecoveryTimers()
-        this.reconnectAttempts = 0
-        this.setPhase('connected')
-        this.callbacks.onStatusMessage('Connected.')
+        this.clearPeerTimers(peer)
+        peer.reconnectAttempts = 0
+        this.setParticipantConnection(peerId, 'connected')
+        if (this.role === 'guest') {
+          this.setPhase('connected')
+          this.callbacks.onStatusMessage('Connected.')
+        } else {
+          this.updateHostPhase()
+        }
         break
       case 'disconnected':
-        this.scheduleDisconnectCheck()
+        this.schedulePeerDisconnect(peer)
         break
       case 'failed':
-        this.handleConnectionFailure()
+        this.handlePeerFailure(peerId)
         break
     }
   }
 
-  private scheduleDisconnectCheck(): void {
-    if (this.ended || this.disconnectTimer) return
-    this.disconnectTimer = setTimeout(() => {
-      this.disconnectTimer = null
-      this.handleConnectionFailure()
-    }, 2500)
+  private handlePeerDataChannelOpen(peerId: string): void {
+    const peer = this.peers.get(peerId)
+    if (!peer) return
+    peer.dataChannelOpen = true
+    this.clearPeerTimers(peer)
+    peer.reconnectAttempts = 0
+    this.setParticipantConnection(peerId, 'connected')
+    this.startCursorTransport()
+    if (this.role === 'guest') {
+      this.setPhase('connected')
+      this.callbacks.onStatusMessage('Connected.')
+    } else {
+      // Give the new guest the current host audio state immediately.
+      peer.webrtc.sendDataChannelMessage({
+        v: 1,
+        type: 'participant-state',
+        payload: { participantId: this.participantId, audioState: !get(this.audioMuted) }
+      })
+      this.updateHostPhase()
+    }
   }
 
-  private handleConnectionFailure(): void {
+  private handlePeerDataChannelClose(peerId: string): void {
+    const peer = this.peers.get(peerId)
+    if (!peer || this.ended) return
+    peer.dataChannelOpen = false
+    this.setParticipantConnection(peerId, 'reconnecting')
+    if (this.role === 'guest') {
+      this.handlePeerFailure(peerId)
+    }
+  }
+
+  private schedulePeerDisconnect(peer: PeerState): void {
+    if (this.ended || peer.disconnectTimer) return
+    peer.disconnectTimer = setTimeout(() => {
+      peer.disconnectTimer = null
+      this.handlePeerFailure(peer.peerId)
+    }, DISCONNECT_GRACE_MS)
+  }
+
+  private handlePeerFailure(peerId: string): void {
     if (this.ended) return
+    const peer = this.peers.get(peerId)
+    if (!peer) return
+
+    this.setParticipantConnection(peerId, 'reconnecting')
 
     if (this.role === 'guest') {
-      // Guests cannot renegotiate. Wait for the host to send a recovery offer.
-      if (this.guestRecoveryTimer) return
+      if (peer.recoveryTimer) return
       this.setPhase('reconnecting')
       this.callbacks.onStatusMessage('The connection was interrupted. Waiting for the host to recover it...')
-      this.guestRecoveryTimer = setTimeout(() => {
-        this.guestRecoveryTimer = null
+      peer.recoveryTimer = setTimeout(() => {
+        peer.recoveryTimer = null
         if (this.ended) return
-        this.setPhase('disconnected')
-        this.callbacks.onStatusMessage('Connection lost. The host could not re-establish it.')
-      }, 20_000)
+        if (!peer.dataChannelOpen) {
+          this.setParticipantConnection(peerId, 'disconnected')
+          this.setPhase('disconnected')
+          this.callbacks.onStatusMessage('Connection lost. The host could not re-establish it.')
+        }
+      }, GUEST_RECOVERY_TIMEOUT_MS)
       return
     }
 
-    if (this.reconnectTimer) return
-    if (this.reconnectAttempts >= 4) {
-      this.setPhase('disconnected')
-      this.callbacks.onStatusMessage('Connection lost. We could not re-establish it.')
+    if (peer.reconnectTimer) return
+    if (peer.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.setParticipantConnection(peerId, 'disconnected')
+      this.updateHostPhase()
       return
     }
 
-    this.reconnectAttempts += 1
-    this.setPhase('reconnecting')
+    peer.reconnectAttempts += 1
+    if (!this.hasConnectedPeers()) this.setPhase('reconnecting')
     this.callbacks.onStatusMessage(
-      this.reconnectAttempts === 1
-        ? 'The connection was interrupted. Reconnecting...'
-        : `Reconnecting... attempt ${this.reconnectAttempts} of 4`
+      `Reconnecting guest... attempt ${peer.reconnectAttempts} of ${MAX_RECONNECT_ATTEMPTS}`
     )
-
-    const delay = 1200 * this.reconnectAttempts
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
-      void this.renegotiateAsHost()
+    const delay = 1200 * peer.reconnectAttempts
+    peer.reconnectTimer = setTimeout(() => {
+      peer.reconnectTimer = null
+      void this.renegotiateHostPeer(peerId)
     }, delay)
   }
 
-  /**
-   * ICE restart only takes effect after a new offer/answer exchange. Calling
-   * restartIce() by itself does not renegotiate the connection.
-   */
-  private async renegotiateAsHost(): Promise<void> {
-    if (this.ended || this.role !== 'host' || !this.webrtc || !this.remotePeerId) return
+  private async renegotiateHostPeer(peerId: string): Promise<void> {
+    if (this.ended || this.role !== 'host') return
+    const peer = this.peers.get(peerId)
+    if (!peer) return
     if (!this.signaling.isConnected) {
-      // The signaling socket is required to deliver the recovery offer.
-      this.handleConnectionFailure()
+      this.handlePeerFailure(peerId)
       return
     }
     try {
-      await this.webrtc.restartIce()
-      const offer = await this.webrtc.createOffer()
-      this.signaling.sendTo(this.remotePeerId, {
-        type: 'offer',
-        payload: { sdp: offer },
-        sessionId: this.sessionId ?? undefined
-      })
+      await peer.webrtc.restartIce()
+      const offer = await peer.webrtc.createOffer()
+      this.sendSignal(peerId, { type: 'offer', payload: { sdp: offer } })
     } catch (err) {
       console.warn('[session] ICE renegotiation failed', err)
-      this.handleConnectionFailure()
+      this.handlePeerFailure(peerId)
     }
   }
 
-  private clearGuestRecoveryTimer(): void {
-    if (this.guestRecoveryTimer) {
-      clearTimeout(this.guestRecoveryTimer)
-      this.guestRecoveryTimer = null
+  private clearPeerTimers(peer: PeerState): void {
+    if (peer.reconnectTimer) {
+      clearTimeout(peer.reconnectTimer)
+      peer.reconnectTimer = null
+    }
+    if (peer.disconnectTimer) {
+      clearTimeout(peer.disconnectTimer)
+      peer.disconnectTimer = null
+    }
+    if (peer.recoveryTimer) {
+      clearTimeout(peer.recoveryTimer)
+      peer.recoveryTimer = null
     }
   }
 
-  private clearRecoveryTimers(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
+  private closePeer(peerId: string): void {
+    const peer = this.peers.get(peerId)
+    if (!peer) return
+    this.clearPeerTimers(peer)
+    if (peer.statsInterval) {
+      clearInterval(peer.statsInterval)
+      peer.statsInterval = null
     }
-    if (this.disconnectTimer) {
-      clearTimeout(this.disconnectTimer)
-      this.disconnectTimer = null
+    peer.webrtc.close()
+    this.peers.delete(peerId)
+    if (this.role === 'host') {
+      const aggregate = this.aggregateHostMetrics()
+      this.metrics.set(aggregate)
+      this.updateHostPhase()
     }
-    this.clearGuestRecoveryTimer()
   }
 
-  private teardownPeer(): void {
-    this.clearRecoveryTimers()
-    this.reconnectAttempts = 0
-    if (this.statsInterval) {
-      clearInterval(this.statsInterval)
-      this.statsInterval = null
+  private closeAllPeers(): void {
+    for (const peerId of [...this.peers.keys()]) {
+      this.closePeer(peerId)
     }
-    this.cursorService?.stop()
-    this.cursorService = null
-    this.webrtc?.close()
-    this.webrtc = null
-    this.monitor = null
-    this.remotePeerId = null
     this.remoteStreamStore.set(null)
-    this.metrics.set(null)
-    if (this.role === 'host' && !this.ended) {
+  }
+
+  private hasConnectedPeers(): boolean {
+    for (const peer of this.peers.values()) {
+      if (peer.dataChannelOpen) return true
+    }
+    return false
+  }
+
+  private updateHostPhase(): void {
+    if (this.ended) return
+    const connected = [...this.peers.values()].filter((p) => p.dataChannelOpen).length
+    if (connected > 0) {
+      this.setPhase('connected')
+      this.callbacks.onStatusMessage(
+        connected === 1 ? '1 guest connected.' : `${connected} guests connected.`
+      )
+    } else if (this.peers.size > 0) {
+      this.setPhase(this.lastPhase === 'reconnecting' ? 'reconnecting' : 'connecting')
+      this.callbacks.onStatusMessage('Waiting for the guest connection to settle...')
+    } else {
       this.setPhase('connecting')
       this.callbacks.onStatusMessage('Waiting for someone to join...')
     }
   }
 
-  private handleHostLeft(): void {
-    if (this.ended) return
-    this.setError('host-left', 'The host ended the session.')
-    this.cleanup()
-  }
-
   private startCursorTransport(): void {
-    if (!this.webrtc) return
     if (this.cursorService) return
     const isHost = this.role === 'host'
-    // Cursor coordinates are only meaningful for a full-display share. For a
-    // window share we don't know the window bounds, so don't draw a misleading
-    // cursor overlay.
     const shareCursor = isHost && this.init.sourceKind !== 'window'
     let current = { x: 0, y: 0, width: 1, height: 1 }
     let cleanup: (() => void) | null = null
+
     if (shareCursor) {
       const onMove = (event: MouseEvent): void => {
         const bounds = this.cursorBounds
@@ -556,6 +881,7 @@ export class SessionService {
       window.addEventListener('mousemove', onMove, { passive: true })
       cleanup = () => window.removeEventListener('mousemove', onMove)
     }
+
     this.cursorService = new CursorService(
       this.participantId ?? 'unknown',
       shareCursor
@@ -567,7 +893,7 @@ export class SessionService {
       shareCursor
         ? {
             sendCursor: (position, participantId) => {
-              this.webrtc?.sendDataChannelMessage({
+              this.broadcastDataChannel({
                 v: 1,
                 type: 'cursor',
                 payload: { participantId, x: position.x, y: position.y, timestamp: position.timestamp }
@@ -579,35 +905,52 @@ export class SessionService {
     this.cursorService.start()
   }
 
-  private handleDataChannel(message: DataChannelMessage): void {
+  private broadcastDataChannel(message: DataChannelMessage, exceptPeerId?: string): void {
+    for (const peer of this.peers.values()) {
+      if (peer.peerId === exceptPeerId) continue
+      peer.webrtc.sendDataChannelMessage(message)
+    }
+  }
+
+  private handleDataChannel(peerId: string, message: DataChannelMessage): void {
     switch (message.type) {
       case 'cursor': {
-        const remoteId = this.role === 'host' ? this.remotePeerId : this.hostId
-        if (!remoteId) break
         const payload = message.payload as CursorPosition & { participantId?: string }
-        const cursor = this.cursorService?.handleRemoteCursor(remoteId, payload)
+        const fromId = this.role === 'host' ? peerId : payload.participantId ?? this.hostId
+        if (!fromId) break
+        const cursor = this.cursorService?.handleRemoteCursor(fromId, payload)
         if (cursor) {
           this.participants.update((list) =>
-            list.map((p) => (p.id === remoteId ? { ...p, cursor } : p))
+            list.map((p) => (p.id === fromId ? { ...p, cursor } : p))
+          )
+        }
+        if (this.role === 'host') {
+          this.broadcastDataChannel(
+            {
+              v: 1,
+              type: 'cursor',
+              payload: { participantId: fromId, x: cursor?.x ?? payload.x, y: cursor?.y ?? payload.y, timestamp: payload.timestamp }
+            },
+            peerId
           )
         }
         break
       }
       case 'participant-state': {
-        const remoteId = this.role === 'host' ? this.remotePeerId : this.hostId
-        if (!remoteId) break
         const payload = message.payload as {
-          participantId?: string
           audioState?: boolean
           connectionState?: string
         }
+        const fromId = this.role === 'host' ? peerId : this.hostId
+        if (!fromId) break
         this.participants.update((list) =>
           list.map((p) =>
-            p.id === remoteId
+            p.id === fromId
               ? {
                   ...p,
                   audioState: payload.audioState ?? p.audioState,
-                  connectionState: (payload.connectionState as Participant['connectionState']) ?? p.connectionState
+                  connectionState:
+                    (payload.connectionState as Participant['connectionState']) ?? p.connectionState
                 }
               : p
           )
@@ -615,33 +958,34 @@ export class SessionService {
         break
       }
       case 'session-event': {
-        const payload = message.payload as { kind: string; peerId?: string }
+        const payload = message.payload as { kind: string }
         if (payload.kind === 'ended') {
           if (this.role === 'guest') {
             this.handleHostLeft()
           } else {
-            // An older/guest client asked to end the whole session. The host
-            // owns the session, so treat it as that guest leaving instead.
-            if (this.remotePeerId) this.removeParticipant(this.remotePeerId)
-            this.teardownPeer()
+            this.removeParticipant(peerId)
+            this.closePeer(peerId)
           }
         } else if (payload.kind === 'peer-left' && this.role === 'host') {
-          if (this.remotePeerId) this.removeParticipant(this.remotePeerId)
-          this.teardownPeer()
+          this.removeParticipant(peerId)
+          this.closePeer(peerId)
         }
         break
       }
       case 'ping': {
-        this.webrtc?.sendDataChannelMessage({ v: 1, type: 'pong', payload: { timestamp: Date.now() } })
+        this.peers.get(peerId)?.webrtc.sendDataChannelMessage({
+          v: 1,
+          type: 'pong',
+          payload: { timestamp: Date.now() }
+        })
         break
       }
       case 'pong': {
         const payload = message.payload as { timestamp?: number }
         if (payload.timestamp) {
           const rtt = Date.now() - payload.timestamp
-          const remoteId = this.role === 'host' ? this.remotePeerId : this.hostId
           this.participants.update((list) =>
-            list.map((p) => (p.id === remoteId ? { ...p, rtt } : p))
+            list.map((p) => (p.id === peerId ? { ...p, rtt } : p))
           )
         }
         break
@@ -649,33 +993,8 @@ export class SessionService {
     }
   }
 
-  private sendHello(): void {
-    this.webrtc?.sendDataChannelMessage({
-      v: 1,
-      type: 'hello',
-      payload: { participantId: this.participantId, displayName: this.init.displayName }
-    })
-  }
-
-  private startStatsLoop(): void {
-    const tick = async (): Promise<void> => {
-      const client = this.webrtc
-      if (this.ended || !client) return
-      try {
-        const stats = await client.getStats()
-        await this.monitor?.update(stats)
-      } catch {
-        // The peer connection can close between the ended check and getStats().
-      }
-    }
-    void tick()
-    this.statsInterval = setInterval(tick, 2000)
-  }
-
-  private statsInterval: ReturnType<typeof setInterval> | null = null
-
   private sendParticipantState(audioState: boolean): void {
-    this.webrtc?.sendDataChannelMessage({
+    this.broadcastDataChannel({
       v: 1,
       type: 'participant-state',
       payload: { participantId: this.participantId, audioState }
@@ -691,10 +1010,6 @@ export class SessionService {
       this.callbacks.onError('audio-unsupported', 'System audio sharing is not supported on this platform.')
       return
     }
-    if (!this.webrtc) {
-      this.callbacks.onError('audio-not-connected', 'Wait for the session to connect before sharing audio.')
-      return
-    }
     if (!this.audio.isEnabled) {
       const enabled = await this.audio.enable()
       if (!enabled) {
@@ -707,18 +1022,20 @@ export class SessionService {
       this.callbacks.onError('audio-denied', 'System audio could not be captured.')
       return
     }
-    // Re-add on every enable: the peer connection may have been rebuilt after
-    // a guest left and a new one joined.
-    this.webrtc.addAudioTrack(track)
+    for (const peer of this.peers.values()) {
+      peer.webrtc.addAudioTrack(track)
+      peer.webrtc.setAudioEnabled(true)
+    }
     this.audio.setEnabled(true)
-    this.webrtc.setAudioEnabled(true)
     this.audioMuted.set(false)
     this.sendParticipantState(true)
   }
 
   disableAudio(): void {
     this.audio.setEnabled(false)
-    this.webrtc?.setAudioEnabled(false)
+    for (const peer of this.peers.values()) {
+      peer.webrtc.setAudioEnabled(false)
+    }
     this.audioMuted.set(true)
     this.sendParticipantState(false)
   }
@@ -734,19 +1051,15 @@ export class SessionService {
   toggleCursors(): void {
     const next = !get(this.cursorsVisible)
     this.cursorsVisible.set(next)
-    this.webrtc?.sendDataChannelMessage({
-      v: 1,
-      type: 'control',
-      payload: { kind: next ? 'show-cursors' : 'hide-cursors' }
-    })
   }
 
   endSession(): void {
     this.ended = true
     if (this.role === 'host') {
-      this.webrtc?.sendDataChannelMessage({ v: 1, type: 'session-event', payload: { kind: 'ended' } })
+      this.broadcastDataChannel({ v: 1, type: 'session-event', payload: { kind: 'ended' } })
+      this.signaling.send({ type: 'end-session', payload: {} })
     } else {
-      this.webrtc?.sendDataChannelMessage({
+      this.broadcastDataChannel({
         v: 1,
         type: 'session-event',
         payload: { kind: 'peer-left', peerId: this.participantId }
@@ -757,21 +1070,11 @@ export class SessionService {
 
   private cleanup(): void {
     this.ended = true
-    this.clearRecoveryTimers()
-    if (this.statsInterval) {
-      clearInterval(this.statsInterval)
-      this.statsInterval = null
-    }
+    this.closeAllPeers()
     this.cursorService?.stop()
     this.cursorService = null
-    this.webrtc?.close()
-    this.webrtc = null
-    this.monitor = null
     this.signaling.close()
 
-    // Stop the local capture. Closing the RTCPeerConnection does not stop the
-    // source tracks, so without this the OS keeps sharing/recording the screen
-    // after the user ends the session.
     const stream = this.localStream
     if (stream) {
       for (const track of stream.getTracks()) {
@@ -790,9 +1093,15 @@ export class SessionService {
     this.sessionCodeStore.set('')
     this.sessionIdStore.set('')
     this.audioMuted.set(true)
-    this.reconnectAttempts = 0
-    this.remotePeerId = null
+    this.hostToken = null
+    this.sessionId = null
     this.setPhase('disconnected')
+  }
+
+  private handleHostLeft(): void {
+    if (this.ended) return
+    this.setError('host-left', 'The host ended the session.')
+    this.cleanup()
   }
 
   private setError(code: string, message: string): void {

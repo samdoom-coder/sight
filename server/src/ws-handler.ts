@@ -1,10 +1,17 @@
 import type { WebSocket, RawData } from 'ws'
+import { timingSafeEqual } from 'node:crypto'
 import type { SignalEnvelope } from '../../src/shared/protocol/messages'
 import { encodeMessage, validateMessage } from './protocol/validate'
 import { RateLimiter } from './security/rate-limiter'
 import { MAX_MESSAGE_BYTES, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_MESSAGES } from './config'
 import { generatePeerId } from './session/ids'
 import type { Session, SessionRegistry, SessionPeer } from './session/registry'
+
+function tokensMatch(a: string, b: string): boolean {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
 
 function send(ws: WebSocket, message: SignalEnvelope): void {
   if (ws.readyState === ws.OPEN) {
@@ -36,7 +43,7 @@ export function handleConnection(
   limits?: ConnectionLimits
 ): void {
   const rateLimiter = new RateLimiter(RATE_LIMIT_MAX_MESSAGES, RATE_LIMIT_WINDOW_MS)
-  const peerId = generatePeerId()
+  let peerId = generatePeerId()
   const state: {
     kind: 'host' | 'guest' | null
     displayName: string
@@ -126,9 +133,93 @@ export function handleConnection(
         }
         send(ws, {
           type: 'session-created',
-          payload: { sessionId: session.id, code, peerId, expiresAt: session.expiresAt }
+          payload: {
+            sessionId: session.id,
+            code,
+            peerId,
+            hostToken: session.hostToken,
+            expiresAt: session.expiresAt
+          }
         })
         log(`Session created (${session.id})`)
+        break
+      }
+      case 'resume-session': {
+        if (state.kind !== 'host') {
+          send(ws, { type: 'error', payload: { code: 'forbidden', message: 'Only hosts can resume sessions.' } })
+          return
+        }
+        if (state.sessionId) {
+          send(ws, { type: 'error', payload: { code: 'already-in-session', message: 'This connection already has a session.' } })
+          return
+        }
+        const p = msg.payload as { sessionId: string; token: string }
+        const session = registry.getById(p.sessionId)
+        if (!session || !tokensMatch(p.token, session.hostToken)) {
+          send(ws, { type: 'error', payload: { code: 'resume-failed', message: 'That session can no longer be resumed.' } })
+          return
+        }
+        const hostPeer = session.peers.get(session.hostId)
+        if (!hostPeer) {
+          send(ws, { type: 'error', payload: { code: 'resume-failed', message: 'That session no longer has a host.' } })
+          return
+        }
+        const oldSocket = hostPeer.ws as WebSocket
+        if (oldSocket.readyState === oldSocket.OPEN) {
+          // The old TCP/WebSocket may be half-open (e.g. network change). The
+          // valid host token proves ownership, so supersede it.
+          oldSocket.close(4001, 'Superseded by resume')
+        }
+        peerId = session.hostId
+        hostPeer.ws = ws
+        state.kind = 'host'
+        state.displayName = hostPeer.displayName
+        state.sessionId = session.id
+        registry.markHostConnected(session)
+        registry.touch(session)
+        send(ws, {
+          type: 'session-resumed',
+          payload: {
+            sessionId: session.id,
+            code: session.code,
+            peerId: session.hostId,
+            expiresAt: session.expiresAt,
+            peers: registry
+              .listPeers(session)
+              .filter((peer) => peer.id !== session.hostId)
+              .map((peer) => ({ peerId: peer.id, displayName: peer.displayName }))
+          }
+        })
+        // Tell the resumed host about guests that joined while it was away.
+        for (const peer of registry.listPeers(session)) {
+          if (peer.id === session.hostId) continue
+          send(ws, {
+            type: 'peer-joined',
+            payload: { peerId: peer.id, displayName: peer.displayName },
+            sessionId: session.id
+          })
+        }
+        log(`Session resumed (${session.id})`)
+        break
+      }
+      case 'end-session': {
+        if (state.kind !== 'host' || !state.sessionId) return
+        const session = registry.getById(state.sessionId)
+        if (!session || session.hostId !== peerId) return
+        for (const peer of registry.listPeers(session)) {
+          if (peer.id === peerId) continue
+          sendToPeer(session, peer.id, {
+            type: 'peer-left',
+            payload: { peerId: session.hostId },
+            sessionId: session.id
+          })
+        }
+        registry.delete(session.id)
+        state.sessionId = null
+        if (session.creatorIp && limits?.recordSessionEnded) {
+          limits.recordSessionEnded(session.creatorIp, session.id)
+        }
+        log(`Session ended by host (${session.id})`)
         break
       }
       case 'join-session': {
@@ -169,12 +260,21 @@ export function handleConnection(
           type: 'session-joined',
           payload: { sessionId: session.id, hostId: session.hostId, hostName: hostPeer?.displayName ?? 'Host', peerId }
         })
-        if (hostPeer) {
-          sendToPeer(session, hostPeer.id, { type: 'peer-joined', payload: { peerId, displayName: p.displayName }, sessionId: session.id })
-        }
+        // Notify the host and every other guest, and send the existing guest
+        // list to the guest that just joined.
         for (const existing of registry.listPeers(session)) {
-          if (existing.id !== peerId && existing.id !== session.hostId) {
-            send(ws, { type: 'peer-joined', payload: { peerId: existing.id, displayName: existing.displayName }, sessionId: session.id })
+          if (existing.id === peerId) continue
+          sendToPeer(session, existing.id, {
+            type: 'peer-joined',
+            payload: { peerId, displayName: p.displayName },
+            sessionId: session.id
+          })
+          if (existing.id !== session.hostId) {
+            send(ws, {
+              type: 'peer-joined',
+              payload: { peerId: existing.id, displayName: existing.displayName },
+              sessionId: session.id
+            })
           }
         }
         log(`Guest joined ${session.id} (${p.displayName})`)
@@ -224,33 +324,31 @@ export function handleConnection(
   })
 
   ws.on('close', () => {
-    if (state.sessionId) {
-      const session = registry.getById(state.sessionId)
-      if (session) {
-        registry.removePeer(session, peerId)
-        const wasHost = registry.isHost(session, peerId)
-        if (wasHost || session.peers.size === 0) {
-          for (const peer of registry.listPeers(session)) {
-            if (peer.id !== peerId) {
-              sendToPeer(session, peer.id, { type: 'peer-left', payload: { peerId }, sessionId: session.id })
-            }
-          }
-          const creatorIp = session.creatorIp
-          registry.delete(session.id)
-          if (creatorIp && limits?.recordSessionEnded) {
-            limits.recordSessionEnded(creatorIp, session.id)
-          }
-          log(`Session ended (${session.id})`)
-        } else {
-          for (const peer of registry.listPeers(session)) {
-            if (peer.id !== peerId) {
-              sendToPeer(session, peer.id, { type: 'peer-left', payload: { peerId }, sessionId: session.id })
-            }
-          }
-          log(`Peer left (${session.id})`)
-        }
-      }
+    if (!state.sessionId) return
+    const session = registry.getById(state.sessionId)
+    if (!session) return
+
+    const currentPeer = session.peers.get(peerId)
+    // After a host resume, the old socket can close after the new one is bound.
+    if (!currentPeer || currentPeer.ws !== ws) return
+
+    if (session.hostId === peerId) {
+      // Keep the session alive for a grace period so the host can rebind its
+      // new signaling socket without invalidating the code for guests.
+      registry.markHostDisconnected(session)
+      log(`Host signaling dropped (${session.id}); grace period started`)
+      return
     }
+
+    registry.removePeer(session, peerId)
+    for (const peer of registry.listPeers(session)) {
+      sendToPeer(session, peer.id, {
+        type: 'peer-left',
+        payload: { peerId },
+        sessionId: session.id
+      })
+    }
+    log(`Peer left (${session.id})`)
   })
 
   ws.on('error', () => {

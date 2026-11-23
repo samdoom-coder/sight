@@ -25,3 +25,7 @@ export function generateSessionId(): string {
 export function generatePeerId(): string {
   return `p_${randomBytes(12).toString('hex')}`
 }
+
+export function generateHostToken(): string {
+  return randomBytes(32).toString('base64url')
+}

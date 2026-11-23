@@ -2,7 +2,9 @@ export type SignalType =
   | 'hello'
   | 'welcome'
   | 'create-session'
+  | 'resume-session'
   | 'session-created'
+  | 'session-resumed'
   | 'join-session'
   | 'session-joined'
   | 'session-full'
@@ -14,6 +16,7 @@ export type SignalType =
   | 'peer-left'
   | 'peer-renamed'
   | 'session-expired'
+  | 'end-session'
   | 'error'
   | 'ping'
   | 'pong'
@@ -47,7 +50,25 @@ export interface SessionCreatedPayload {
   sessionId: string
   code: string
   peerId: string
+  hostToken?: string
   expiresAt: number
+}
+
+export interface ResumeSessionPayload {
+  sessionId: string
+  token: string
+}
+
+export interface SessionResumedPayload {
+  sessionId: string
+  code: string
+  peerId: string
+  expiresAt: number
+  peers?: Array<{ peerId: string; displayName: string }>
+}
+
+export interface EndSessionPayload {
+  reason?: string
 }
 
 export interface JoinSessionPayload {

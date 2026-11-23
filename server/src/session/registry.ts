@@ -1,5 +1,5 @@
 import { SESSION_TTL_MS, MAX_PARTICIPANTS } from '../config'
-import { generatePeerId, generateSessionCode, generateSessionId } from './ids'
+import { generateHostToken, generatePeerId, generateSessionCode, generateSessionId } from './ids'
 
 export interface SessionPeer {
   id: string
@@ -13,6 +13,8 @@ export interface Session {
   id: string
   code: string
   hostId: string
+  hostToken: string
+  hostDisconnectedAt?: number
   createdAt: number
   expiresAt: number
   ttlMs: number
@@ -51,6 +53,7 @@ export class SessionRegistry {
       id: generateSessionId(),
       code,
       hostId: hostPeer.id,
+      hostToken: generateHostToken(),
       createdAt: now,
       expiresAt: now + safeTtl,
       ttlMs: safeTtl,
@@ -65,6 +68,30 @@ export class SessionRegistry {
   /** Sliding expiry: any valid signaling traffic keeps the session alive. */
   touch(session: Session, now = Date.now()): void {
     session.expiresAt = now + session.ttlMs
+  }
+
+  markHostDisconnected(session: Session, now = Date.now()): void {
+    session.hostDisconnectedAt = now
+  }
+
+  markHostConnected(session: Session): void {
+    session.hostDisconnectedAt = undefined
+  }
+
+  /**
+   * Sessions whose host socket dropped and did not resume within the grace
+   * window. Guests stay in the session meanwhile so P2P media can continue.
+   */
+  expireDisconnectedHosts(graceMs: number, now = Date.now()): Session[] {
+    const lost: Session[] = []
+    for (const [id, session] of this.sessions) {
+      if (session.hostDisconnectedAt !== undefined && now - session.hostDisconnectedAt >= graceMs) {
+        this.sessions.delete(id)
+        this.byCode.delete(session.code)
+        lost.push(session)
+      }
+    }
+    return lost
   }
 
   getByCode(code: string): Session | undefined {
