@@ -17,7 +17,8 @@ const api: DesktopApi = {
   system: {
     platform: () => ipcRenderer.invoke(IPC.system.platform),
     openExternal: (url) => ipcRenderer.send(IPC.system.openExternal, url),
-    displayBounds: (displayId) => ipcRenderer.invoke(IPC.system.displayBounds, displayId)
+    displayBounds: (displayId) => ipcRenderer.invoke(IPC.system.displayBounds, displayId),
+    isE2E: () => ipcRenderer.invoke(IPC.system.isE2E)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settings.get),

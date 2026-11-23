@@ -44,7 +44,7 @@ function buildConfig(settings: AppSettings): RuntimeConfig {
   return {
     signalingUrl: normalizeSignalingUrl(env.signalingUrl || DEFAULT_SIGNALING_URL),
     iceServers,
-    appVersion: '0.1.0',
+    appVersion: '0.2.0',
     platform: window.desktop?.platform ?? 'unknown'
   }
 }

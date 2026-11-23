@@ -1,6 +1,6 @@
 {
   "name": "sight",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sight — instant peer-to-peer screen sharing made ridiculously simple.",
   "author": "Sight Team",
   "license": "MIT",
@@ -28,6 +28,8 @@
     "package:dir": "npm run build && electron-builder --dir",
     "test": "vitest run",
     "test:watch": "vitest",
+    "build:e2e": "cross-env VITE_SIGNALING_URL=ws://127.0.0.1:8787/ws npm run build",
+    "test:e2e": "npm run build:e2e && playwright test",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "check": "svelte-check --tsconfig ./tsconfig.renderer.json --fail-on-warnings",
     "server": "tsx server/src/index.ts",
@@ -44,6 +46,8 @@
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^4.0.0",
+    "@electron/notarize": "^2.5.0",
+    "@playwright/test": "^1.65.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^22.20.4",
@@ -53,6 +57,7 @@
     "electron": "^41.10.7",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "playwright": "^1.65.1",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.8",
     "tsx": "^4.23.15",
@@ -63,6 +68,7 @@
   "build": {
     "appId": "app.sight.desktop",
     "productName": "Sight",
+    "afterSign": "scripts/notarize.cjs",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -102,7 +108,7 @@
       ]
     },
     "dmg": {
-      "sign": false
+      "title": "Sight"
     },
     "win": {
       "target": [

@@ -77,12 +77,20 @@ Never commit real TURN credentials.
 ```bash
 npm run test         # run once
 npm run test:watch   # watch mode
+npm run test:e2e     # Playwright Electron smoke/session tests
 ```
 
-- `tests/unit/` — session codes, cursor math, connection state machine, participant state,
-  signaling message validation
-- `tests/integration/` — the signaling server in-process: session lifecycle, SDP/ICE
-  relay, invalid codes, disconnect propagation
+- `tests/unit/` — session codes, cursor math, connection metrics, TURN credentials,
+  participant state, signaling message validation
+- `tests/integration/` — the signaling server in-process: session lifecycle, multi-guest
+  joins, limits, resume, SDP/ICE relay, invalid codes
+- `tests/e2e/electron/` — Playwright launches real Electron windows, captures a screen
+  under Xvfb, joins a guest, verifies video and guest-pointer relay
+
+On Linux CI, `test:e2e` runs under `xvfb-run` after `npx playwright install-deps`.
+E2E instances launch with `SIGHT_E2E=1`, separate profile directories, and Chromium's fake
+media device; the capture picker still exercises `desktopCapturer`, while the media pipeline
+is deterministic on headless runners.
 
 ## Type checking
 

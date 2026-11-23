@@ -92,6 +92,10 @@ export function registerIpcHandlers(): void {
     assertTrusted(event)
     return getDisplayBounds(displayId)
   })
+  ipcMain.handle(IPC.system.isE2E, (event) => {
+    assertTrusted(event)
+    return process.env.SIGHT_E2E === '1'
+  })
 
   ipcMain.handle(IPC.settings.get, (event) => {
     assertTrusted(event)

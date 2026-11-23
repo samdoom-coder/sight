@@ -70,7 +70,8 @@ for the full development workflow.
 | `npm run build`  | Build main, preload, server, and renderer           |
 | `npm run start`  | Launch the packaged `dist/` build in Electron       |
 | `npm run package`| Build installers for the current platform           |
-| `npm run test`   | Run unit, integration and e2e tests (Vitest)       |
+| `npm run test`   | Run unit + integration tests (Vitest)              |
+| `npm run test:e2e` | Build + run Playwright Electron tests (needs a display or xvfb) |
 | `npm run typecheck` | Type-check main, renderer, and server            |
 | `npm run check`  | Svelte template/type checks (`svelte-check`)        |
 | `npm run server` | Run the signaling server from source                |

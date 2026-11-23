@@ -71,7 +71,7 @@ export const HOST_RECONNECT_GRACE_MS = Number(process.env.HOST_RECONNECT_GRACE_M
 
 export const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000)
 
-export const SERVER_VERSION = process.env.SIGHT_SERVER_VERSION ?? '0.1.0'
+export const SERVER_VERSION = process.env.SIGHT_SERVER_VERSION ?? '0.2.0'
 
 if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.includes('*')) {
   console.warn(

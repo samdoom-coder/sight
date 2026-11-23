@@ -1,5 +1,5 @@
 export const APP_NAME = 'Sight'
-export const APP_VERSION = '0.1.0'
+export const APP_VERSION = '0.2.0'
 
 export const SESSION_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const SESSION_CODE_GROUPS = 2

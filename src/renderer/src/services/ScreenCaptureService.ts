@@ -19,7 +19,20 @@ export class ScreenCaptureService {
     if (!window.desktop) {
       throw new Error('Desktop capture is not available outside the Electron shell.')
     }
+    // Headless CI runners cannot initialise the X11 desktop capturer reliably.
+    // Playwright launches with Chromium's fake media device, so use that for the
+    // E2E pipeline while real builds keep the native screen capture path.
+    if (await window.desktop.system.isE2E()) {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { width: 1280, height: 720, frameRate: 30 }
+      })
+      console.debug('[capture] e2e fake stream tracks', stream.getTracks().map((t) => t.kind))
+      return stream
+    }
+    console.debug('[capture] requesting source', sourceId)
     const handle = await window.desktop.capture.getMediaSource(sourceId)
+    console.debug('[capture] source accepted', handle)
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
@@ -34,6 +47,10 @@ export class ScreenCaptureService {
         }
       }
     })
+    console.debug(
+      '[capture] stream tracks',
+      stream.getTracks().map((t) => `${t.kind}:${t.readyState}`)
+    )
     return stream
   }
 

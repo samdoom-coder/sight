@@ -237,6 +237,17 @@ Artifacts land in `release/`:
   Apple Developer identity).
 - **Linux**: ship the AppImage; attach the `.deb` for Debian/Ubuntu repos.
 
+The release workflow signs when these repository secrets are configured:
+
+| Secret | Purpose |
+| --- | --- |
+| `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` | base64 Developer ID `.p12` + password |
+| `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` | base64 Authenticode `.p12` + password |
+| `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` | notarization |
+
+`scripts/notarize.cjs` skips notarization when the Apple secrets are absent, so
+workflow-dispatch and fork builds still produce unsigned artifacts.
+
 ### Auto-updates
 
 `electron-updater` is already wired up. Packaged builds check GitHub Releases after startup;

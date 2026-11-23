@@ -12,8 +12,26 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      - name: Compute image tags
+        id: meta
+        run: |
+          echo "tag=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
       - name: Build signaling image
-        run: docker build -f Dockerfile.signaling -t sight-signaling:${{ github.ref_name }} .
+        run: docker build -f Dockerfile.signaling -t sight-signaling:${{ steps.meta.outputs.tag }} .
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push signaling image
+        run: |
+          IMAGE=$(echo "ghcr.io/${GITHUB_REPOSITORY}/signaling" | tr '[:upper:]' '[:lower:]')
+          docker tag "sight-signaling:${{ steps.meta.outputs.tag }}" "$IMAGE:${{ steps.meta.outputs.tag }}"
+          docker tag "sight-signaling:${{ steps.meta.outputs.tag }}" "$IMAGE:sha-${{ steps.meta.outputs.sha }}"
+          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"
+          docker push "$IMAGE:sha-${{ steps.meta.outputs.sha }}"
 
   desktop:
     strategy:
@@ -30,18 +48,37 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run check
+      - run: npm test
+      - name: Package (no publish)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run package -- --publish never
         env:
           VITE_SIGNALING_URL: ${{ secrets.VITE_SIGNALING_URL }}
           VITE_STUN_URL: ${{ secrets.VITE_STUN_URL }}
           VITE_TURN_URL: ${{ secrets.VITE_TURN_URL }}
           VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
           VITE_TURN_PASSWORD: ${{ secrets.VITE_TURN_PASSWORD }}
-      - name: Package (dir, no signing — smoke only on CI)
-        run: npm run package:dir
-      - name: Publish (unsigned, on tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: npm run package
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || matrix.os == 'windows-latest' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Package and publish
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run package -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SIGNALING_URL: ${{ secrets.VITE_SIGNALING_URL }}
+          VITE_STUN_URL: ${{ secrets.VITE_STUN_URL }}
+          VITE_TURN_URL: ${{ secrets.VITE_TURN_URL }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_PASSWORD: ${{ secrets.VITE_TURN_PASSWORD }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || matrix.os == 'windows-latest' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

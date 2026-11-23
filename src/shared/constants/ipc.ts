@@ -13,7 +13,8 @@ export const IPC = {
   system: {
     platform: 'system:platform',
     openExternal: 'system:open-external',
-    displayBounds: 'system:display-bounds'
+    displayBounds: 'system:display-bounds',
+    isE2E: 'system:is-e2e'
   },
   settings: {
     get: 'settings:get',

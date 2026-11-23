@@ -5,6 +5,13 @@
 > Base: `sight-main.zip` (Sight v0.1.0 — Electron 31 + Svelte 4 + Vite 5 +
 > WebRTC P2P screen sharing with a Node `ws` signaling server).
 
+## 0.2.0 release summary (2026-11-23)
+
+Sight 0.2.0 adds multi-guest viewing, host session resume, guest pointer
+collaboration, ephemeral TURN credentials, Playwright Electron E2E coverage, and
+release signing/notarization scaffolding. See sections 0–0d below for the detailed
+change log. The app/server version is now `0.2.0`.
+
 ## 0. Correctness/privacy patch (2026-11-23)
 
 - Viewer/Diagnostics now subscribe to the live `SessionService` stores instead of the
@@ -71,6 +78,19 @@
 - Added `TURN_TTL_SECONDS` (default 24h, clamped 60s–24h) and unit tests for the credential
   format.
 - coturn/deployment docs switched from a static `user=` entry to `use-auth-secret`.
+
+## 0e. Release engineering (2026-11-23)
+
+- Bumped app/server to `0.2.0`.
+- Added Playwright Electron E2E tests: boot + capture picker, host/guest video, and guest
+  pointer relay. CI runs them under Xvfb with Chromium's fake media device so headless
+  runners are deterministic.
+- Added electron-builder `afterSign` notarization (`scripts/notarize.cjs`), conditional
+  macOS/Windows signing secrets, and removed the forced-unsigned DMG config.
+- Release workflow now runs typecheck/check/tests, publishes signed artifacts when secrets
+  are present, and pushes the signaling Docker image to GHCR.
+- Added `test:e2e`, `build:e2e`, and `playwright.config.ts`; documented signing secrets and
+  local E2E requirements.
 
 ## 1. How to run (Windows PowerShell / macOS / Linux)
 

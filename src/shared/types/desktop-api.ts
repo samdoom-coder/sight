@@ -17,6 +17,7 @@ export interface DesktopApi {
     platform: () => Promise<string>
     openExternal: (url: string) => void
     displayBounds: (displayId: string) => Promise<DisplayBounds | null>
+    isE2E: () => Promise<boolean>
   }
   settings: {
     get: () => Promise<AppSettings>

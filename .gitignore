@@ -11,3 +11,7 @@ release/
 *.tsbuildinfo
 coverage/
 sight.zip
+test-results/
+playwright-report/
+blob-report/
+.playwright/

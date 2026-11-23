@@ -106,6 +106,7 @@
       window.__sightPendingStream = stream
       navigate({ name: 'host' })
     } catch (err) {
+      console.error('[capture] failed to start sharing', err)
       showToast(`Could not start capture: ${(err as Error).message}`, 'error')
     }
   }

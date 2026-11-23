@@ -8,7 +8,12 @@ let quitting = false
 
 app.setName('Sight')
 
-const gotTheLock = app.requestSingleInstanceLock()
+// Playwright launches multiple instances; skip the single-instance lock and
+// give each instance its own profile directory in E2E runs.
+const e2eUserData = process.env.SIGHT_E2E_USER_DATA
+if (e2eUserData) app.setPath('userData', e2eUserData)
+
+const gotTheLock = process.env.SIGHT_E2E === '1' || app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
